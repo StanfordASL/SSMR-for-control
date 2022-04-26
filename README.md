@@ -16,4 +16,4 @@ Go to the ``examples/`` folder and run ``analysis_mattia.mlx`` for minimal code 
 
 Main (but cluttered) modal analysis file is located in ``modal_analysis.mlx`` in the root directory.
 
-<h3>All decay trajectories are located in modal_trajectory_data/decay/ folder.</h3>
+<h3>All decay trajectories are located in modal_trajectory_data/decay/ folder. TODO: Reorganize file structure</h3>
