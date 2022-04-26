@@ -16,5 +16,6 @@ addpath(fullfile(maindir, 'visualization'));
 addpath(fullfile(maindir, 'utils'));
 addpath(fullfile(maindir, 'modal_trajectory_data'));
 addpath(fullfile(maindir, 'modal_trajectory_data/decay'));
+addpath(fullfile(maindir, 'examples'));
 
 end
