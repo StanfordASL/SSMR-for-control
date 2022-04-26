@@ -15,3 +15,5 @@ Go to the ``examples/`` folder and run ``analysis_mattia.mlx`` for minimal code 
 5. OPTIONAL: View amplitudes of Figure 8 trajectory (REQUIRED: ``vq.csv`` from google drive).
 
 Main (but cluttered) modal analysis file is located in ``modal_analysis.mlx`` in the root directory.
+
+<h3>All decay trajectories are located in modal_trajectory_data/decay/ folder.</h3>
