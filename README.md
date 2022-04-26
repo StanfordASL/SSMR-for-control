@@ -1,7 +1,8 @@
 # soft-robot-control-ssmlearn
 
-![](teaser.gif)
-
+<p align="center">
+  <img width="460" height="300" src="soft-robot.png">
+</p>
 This repository contains the matlab code for "SSMLearn for Control". Currently, we are conducting modal analysis to sysID the diamond robot (see above)
 
 To get started in Matlab, run ``install.m``. 
