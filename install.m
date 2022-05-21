@@ -15,7 +15,9 @@ addpath(fullfile(maindir, extdir, 'MatlabProgressBar'));
 addpath(fullfile(maindir, 'visualization'));
 addpath(fullfile(maindir, 'utils'));
 addpath(fullfile(maindir, 'modal_trajectory_data'));
+addpath(fullfile(maindir, 'data'));
 addpath(fullfile(maindir, 'modal_trajectory_data/decay'));
+addpath(fullfile(maindir, 'modal_trajectory_data/check_model'));
 addpath(fullfile(maindir, 'examples'));
 
 end
