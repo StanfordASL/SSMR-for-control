@@ -43,17 +43,14 @@ function [filePath, xData] = consolidateData(path, files, Tspan, numNodes, ...
     % Saving data as mat file. Make sure to load this
     if strcmp(p.Results.storeType, 'both')
         filePath = append(path, 'output/', 'qvConsolidatedData');
-        save(filePath,'xData');
     elseif strcmp(p.Results.storeType, 'q')
         filePath = append(path, 'output/', 'qConsolidatedData');
-        save(filePath,'xData');
     elseif strcmp(p.Results.storeType, 'v')
         filePath = append(path, 'output/', 'vConsolidatedData');
-        save(filePath,'xData');
     elseif strcmp(p.Results.storeType, 'output')
         filePath = append(path, 'output/', 'qv_out_ConsolidatedData');
-        save(filePath,'xData');
     end
+    save(filePath,'xData', '-v7.3')
 
 end
 
