@@ -28,7 +28,7 @@ function [yData, optsEmbd] = coordinatesEmbedding(xData, SSMDim, varargin)
 % Developed by Mattia Cenedese. Updated August 2022.
 
 optsEmbd = struct('IMdimensions',SSMDim,'OverEmbedding',0,...
-    'ForceEmbedding',0,'TimeStepping',1,'ShiftSteps',1);
+    'ForceEmbedding',0,'TimeStepping',1,'ShiftSteps',1,'ndim',0,'NumDelays',0);
 % Default case
 if nargin == 3; optsEmbd.OverEmbedding = varargin{:}; end
 if rem(length(varargin),2) > 0 && length(varargin) > 1
@@ -44,11 +44,17 @@ end
 
 % Determine number of embedding coordinate system
 N_traj = size(xData,1);
-N = size([xData{1,2}],1);
+% Give option to specify desired dimension
+if optsEmbd.ndim > 0
+    N = optsEmbd.ndim;
+else
+    N = size([xData{1,2}],1);
+end
 if length([xData{1,1}])==N; N = size([xData{1,2}],2); end
 l = optsEmbd.TimeStepping;
 shift = optsEmbd.ShiftSteps;
 n_N = ( ceil( (2*SSMDim+1)/N ) + optsEmbd.OverEmbedding);
+optsEmbd.NumDelays = n_N;
 % Construct embedding coordinate system
 yData = cell(N_traj,2);
 ind_traj = cell(N_traj,1); idx_end = 0;
