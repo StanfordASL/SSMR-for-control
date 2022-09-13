@@ -1,4 +1,4 @@
-# soft-robot-control-ssmlearn
+# SSMR for Control
 
 <p align="center">
   <img width="460" height="300" src="soft-robot.png">
