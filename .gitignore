@@ -443,3 +443,7 @@ ROM/gen/
 p
 python/
 system_data/
+ROM/dataDecayObs.mat
+ROM/dataDecayObs_john.mat
+modal_trajectory_data/hw_train/
+modal_trajectory_data/train_data/
