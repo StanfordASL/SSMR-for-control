@@ -1,4 +1,4 @@
-function oData = consolidateSSMTrainData(path, files, idx_end, varargin)
+function oData = consolidateSSMTrainData(path, files, varargin)
 
     if ~iscell(files)
         files = {files};
@@ -7,8 +7,10 @@ function oData = consolidateSSMTrainData(path, files, idx_end, varargin)
     % Parse inputs
     p = inputParser;
     addParameter(p, 'center', true)
+    addParameter(p, 'idx_end', 0)
     parse(p, varargin{:});
     toCenter = p.Results.center;
+    idx_end = p.Results.idx_end;
 
     oData = cell(length(files),2);
 
@@ -18,13 +20,25 @@ function oData = consolidateSSMTrainData(path, files, idx_end, varargin)
         currFile = files(iFile);
         dataFile = append(path, currFile{:});
         data = matfile(dataFile);
-
-        oData{iFile,1} = data.t(1, 1:idx_end);
+        sizeData = length(data.t);
+        if idx_end ~= 0
+            oData{iFile,1} = data.t(1, 1:idx_end);
+        else
+            oData{iFile,1} = data.t(1, 1:sizeData);
+        end
 
         if toCenter
-            oData{iFile,2} = data.y(:, 1:idx_end) - data.y_eq';
+            if idx_end ~= 0
+                oData{iFile,2} = data.y(:, 1:idx_end) - data.y_eq';
+            else
+                oData{iFile,2} = data.y(:, 1:sizeData) - data.y_eq';
+            end
         else
-            oData{iFile,2} = data.y(:, 1:idx_end);
+            if idx_end ~= 0
+                oData{iFile,2} = data.y(:, 1:idx_end);
+            else
+                oData{iFile,2} = data.y(:, 1:sizeData);
+            end
         end
         
         bar(1, [], []);
