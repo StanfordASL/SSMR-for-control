@@ -5,9 +5,9 @@ function install
 maindir = fileparts(mfilename('fullpath'));
 extdir = 'ext';
 
-ssminstall = fullfile(maindir, extdir , 'SSMTool','install.m');
+%ssminstall = fullfile(maindir, extdir , 'SSMTool','install.m');
 ssmlearninstall = fullfile(maindir, extdir, 'SSMLearn', 'install.m');
-run(ssminstall);
+%run(ssminstall);
 run(ssmlearninstall)
 
 addpath(fullfile(maindir, extdir));
