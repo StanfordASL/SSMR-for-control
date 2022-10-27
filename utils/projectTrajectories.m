@@ -1,15 +1,17 @@
-function yData = projectTrajectories(V, xData)
-% projectTrajectories: Project trajectories down to reduced coordinates
-%   V: 6*num_DOF x 2*k matrix of dominant k modes
-%   xData: cell of times and trajectories of full state (
+function etaData = projectTrajectories(IMInfo, yData)
+% etaData = projectTrajectories(IMInfo, yData)
+% 
+% Use the chart of a manifold to transform trajectories in the observable
+% space to reduced coordinates on the manifold.
+%   
+% INPUT
+% IMInfo     struct        from IMGeometry function. 
+% yData      {nTraj x 2}   Cell array of trajectories. First column 
+%                          contains time, second column contains state.
+% OUTPUT
+% etaData    {nTraj x 2}   Trajectories in reduced coordinates.
+%
+% Equivalent to:
+%       transformTrajectories(IMInfo.chart.map, yData);
 
-num_traj = size(xData, 1);
-yData = cell(num_traj,2);
-
-for i=1:num_traj
-    yData{i, 1} = xData{i, 1};
-    yData{i, 2} = transpose(V) * xData{i, 2};
-end
-
-end
-
+etaData = transformTrajectories(IMInfo.chart.map, yData);
