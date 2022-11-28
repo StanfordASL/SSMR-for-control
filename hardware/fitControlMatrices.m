@@ -1,4 +1,4 @@
-function [Br,Bv,regErrors] = fitControlMatrices(yuxData,RDInfo,IMInfo)
+function [Br,Bv,regErrors] = fitControlMatrices(yuxData,RDInfo,IMInfo, regBr, regBv)
 % Assume graph type approach where reduced coordinates are a linear
 % projection. xuTraj is a list of full trajectories (of potentially delay 
 % embedded data) where first column is time, second are the embedded
@@ -31,12 +31,12 @@ end
 % Fit reduced dynamics control matrix
 deltaDerivatives = dXrdt - redynFun(Xr);
 % Learn whole B matrix
-[Br,~,~] = ridgeRegression(U, deltaDerivatives, ones(size(t)), [], 0);
+[Br,~,~] = ridgeRegression(U, deltaDerivatives, ones(size(t)), [], regBr);
 regErrorBr = mean(sqrt(sum((deltaDerivatives - Br*U).^2)))/...
              max(sqrt(sum((deltaDerivatives).^2)));
          
 % Fit parametrization control matrix
-[Bvc,~,~] = ridgeRegression(U, dDvCdt, ones(size(t)), [], 0);
+[Bvc,~,~] = ridgeRegression(U, dDvCdt, ones(size(t)), [], regBv);
 regErrorBv = mean(sqrt(sum((dDvCdt - Bvc*U).^2)))/...
              max(sqrt(sum((dDvCdt).^2)));
 Bv = Vc*Bvc;        
