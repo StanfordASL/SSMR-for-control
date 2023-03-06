@@ -30,6 +30,8 @@ for iObs = 1:numCoord
 end
 end
 
+oDataRaw = oData;
+
 %%
 % 1: also 2
 % 7: also .11
@@ -43,3 +45,45 @@ for iTraj = 1:size(oData,1)
     oData{iTraj,2} = oData{iTraj,2}(:,indIni:indEnd);
 end
 save('obsDecayDataC.mat','oData')
+%% Plot xyz of tip before and after truncation
+outdofs = trajs;
+nTraj = size(oData,1);
+
+customFigure; colororder(cool(nTraj));
+for iTraj = 1:nTraj
+    plot3(oDataRaw{iTraj,2}(outdofs(1),:),oDataRaw{iTraj,2}(outdofs(2),:),oDataRaw{iTraj,2}(outdofs(3),:),'Linewidth',1)
+end
+view(3)
+xlabel('$x$','Interpreter','latex');
+ylabel('$y$','Interpreter','latex');
+zlabel('$z$','Interpreter','latex');
+
+customFigure('subPlot',[3 1]); 
+subplot(311); colororder(cool(nTraj));
+xlabel('$t$','Interpreter','latex');
+ylabel('$x$','Interpreter','latex');
+subplot(312); colororder(cool(nTraj));
+xlabel('$t$','Interpreter','latex');
+ylabel('$y$','Interpreter','latex');
+subplot(313); colororder(cool(nTraj));
+xlabel('$t$','Interpreter','latex');
+ylabel('$z$','Interpreter','latex');
+
+% Plotting truncated
+for iTraj = 1:nTraj
+    subplot(311);
+    plot(oData{iTraj,1},oData{iTraj,2}(outdofs(1),:),'Linewidth',1)
+    subplot(312);
+    plot(oData{iTraj,1},oData{iTraj,2}(outdofs(2),:),'Linewidth',1)
+    subplot(313);
+    plot(oData{iTraj,1},oData{iTraj,2}(outdofs(3),:),'Linewidth',1)
+end
+
+customFigure; colororder(cool(nTraj));
+for iTraj = 1:nTraj
+    plot3(oData{iTraj,2}(outdofs(1),:),oData{iTraj,2}(outdofs(2),:),oData{iTraj,2}(outdofs(3),:),'Linewidth',1)
+end
+view(3)
+xlabel('$x$','Interpreter','latex');
+ylabel('$\dot{x}$','Interpreter','latex');
+zlabel('$z$','Interpreter','latex');
