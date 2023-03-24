@@ -43,6 +43,12 @@ function [IMInfo, IMChart, IMParam] = IMGeometry(yData, SSMDim, M, varargin)
 % IMParam - function that parametrize the manifold as function of the
 %           the reduced coordinates
 
+data_from_python = all(size(yData) == [1, 2]);
+if data_from_python
+    disp("Data seems to have been fed from Python!")
+    yData = vertcat(yData{:})';
+end
+
 % Default options and custom ones
 optsGeomtery = struct('l', 0,'c1',0,'c2',0,'t',1,...
     'style','natural','chart',[],'reducedCoordinates',[],'Ve',[]);
@@ -51,9 +57,12 @@ if rem(length(varargin),2) > 0 && length(varargin) > 1
 end
 if nargin > 4
     for ii = 1:length(varargin)/2
-        optsGeomtery.(varargin{2*ii-1}) = varargin{2*ii};
+        if data_from_python && (varargin{2*ii-1} == "reducedCoordinates")
+            optsGeomtery.(varargin{2*ii-1}) = vertcat(varargin{2*ii}{:})';
+        else
+            optsGeomtery.(varargin{2*ii-1}) = varargin{2*ii};
+        end
     end
-end
 if isempty(optsGeomtery.chart) == 0 || ...
         isempty(optsGeomtery.reducedCoordinates) == 0
     optsGeomtery.style = 'custom';
