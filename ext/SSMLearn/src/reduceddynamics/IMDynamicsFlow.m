@@ -92,6 +92,12 @@ function [RDInfo,R,iT,N,T] = IMDynamicsFlow(etaData,varargin)
 %     the last five options are for Matlab function fminunc.
 %     For more information, check out its documentation.
 
+data_from_python = all(size(etaData) == [1, 2]);
+if data_from_python
+    disp("Data seems to have been fed from Python!")
+    etaData = vertcat(etaData{:})';
+end
+
 if rem(length(varargin),2) > 0 && length(varargin) > 1
     error('Error on input arguments. Missing or extra arguments.')
 end
