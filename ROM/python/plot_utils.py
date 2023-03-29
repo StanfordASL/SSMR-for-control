@@ -36,13 +36,13 @@ def traj_3D(Data, xyz_idx, xyz_names):
     fig = plt.figure(figsize=(9, 4))
     ax = plt.axes(projection='3d')
 
-    ntraj = Data['oData'].shape[0]
+    ntraj = len(Data['oData'])
     colors = TRAJ_COLORMAP(np.linspace(0, 1, ntraj))
 
     for traj in range(ntraj):
-        ax.plot3D(Data[xyz_idx[0][0]][traj, 1][xyz_idx[0][1], :],
-                  Data[xyz_idx[1][0]][traj, 1][xyz_idx[1][1], :],
-                  Data[xyz_idx[2][0]][traj, 1][xyz_idx[2][1], :],
+        ax.plot3D(Data[xyz_idx[0][0]][traj][1][xyz_idx[0][1], :],
+                  Data[xyz_idx[1][0]][traj][1][xyz_idx[1][1], :],
+                  Data[xyz_idx[2][0]][traj][1][xyz_idx[2][1], :],
                   color=colors[traj], lw=TRAJ_LINEWIDTH)
 
     ax.set_xlabel(xyz_names[0])
@@ -75,7 +75,7 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
 
     if traj_idx is None:
-        traj_idx = list(range(Data[xyz_idx[0][0]].shape[0]))
+        traj_idx = list(range(len(Data[xyz_idx[0][0]])))
 
     if color is None:
         colors = TRAJ_COLORMAP(np.linspace(0, 1, len(traj_idx)))
@@ -85,8 +85,8 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
     for coord, ax in enumerate(axs):
         for i, traj in enumerate(traj_idx):
             # plot(t, x/y/z)
-            ax.plot(Data[xyz_idx[coord][0]][traj, 0],
-                    Data[xyz_idx[coord][0]][traj, 1][xyz_idx[coord][1], :],
+            ax.plot(Data[xyz_idx[coord][0]][traj][0],
+                    Data[xyz_idx[coord][0]][traj][1][xyz_idx[coord][1], :],
                     color=colors[i], ls=ls, lw=TRAJ_LINEWIDTH)
         ax.set_ylabel(xyz_names[coord])
         ax.set_xlabel(r"$t$")
@@ -134,12 +134,12 @@ def mode_direction(modeDir, modeFreq):
 
     fig = plt.figure(figsize=(9, 4))
     ax = plt.axes(projection='3d')
-
+    ls = [':', '--', '-.']
     for i in range(3):
         ax.plot3D([0, modeDir[0, i]],
                   [0, modeDir[1, i]],
                   [0, modeDir[2, i]],
-                  lw=2, color=COLORS[i],
+                  lw=2, color=COLORS[i], ls = ls[i],
                   label=fr"Mode {i+1} - $\omega$ = {modeFreq[i]:.2f} rad/s")
         ax.plot3D(modeDir[0, i],
                   modeDir[1, i],
