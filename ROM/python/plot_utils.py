@@ -151,3 +151,53 @@ def mode_direction(modeDir, modeFreq):
     ax.set_zlabel(r"$z$")
 
     plt.show()
+
+
+def inputs(t, u, ax=None, show=True):
+    assert u.shape[0] % 4 == 0
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 4))
+    ax.plot(t, u[:4, :].T, lw=TRAJ_LINEWIDTH)
+    ax.set_ylabel(r"$u_{1-4}$")
+    ax.set_xlabel(r"$t$")
+    ax.set_xmargin(0)
+    ax.legend([rf"$u_{i}$" for i in [1, 2, 3, 4]])
+    if show:
+        plt.show()
+    else:
+        return ax
+    
+def reduced_coordinates_gradient(t, gradients, labels=None, how="norm", ax=None, show=True):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 4))
+    if labels is None:
+        labels = ["unknown"] * len(gradients)
+    
+    cmaps = [plt.cm.Blues, plt.cm.Oranges, plt.cm.Greens]
+
+    for i, gradient in enumerate(gradients):
+        if how == "norm":
+            y = np.linalg.norm(gradient, axis=0).reshape(-1, 1)
+            colors = [COLORS[i]]
+        elif how == "all":
+            y = gradient.T
+            colors = cmaps[i](np.linspace(0.5, 1, gradient.shape[0]))
+        else:
+            y = np.array([])
+            colors = []
+            print("How to plot gradients??")
+        for j in range(y.shape[1]):
+            ax.plot(t, y[:, j], lw=TRAJ_LINEWIDTH, color=colors[j], label=labels[i])
+
+    ax.set_ylabel(r"$\dot{x}$")
+    ax.set_xlabel(r"$t$")
+    ax.set_xmargin(0)
+
+    h, l = ax.get_legend_handles_labels()
+    by_label = dict(zip(l, h))
+    ax.legend(by_label.values(), by_label.keys())
+
+    if show:
+        plt.show()
+    else:
+        return ax

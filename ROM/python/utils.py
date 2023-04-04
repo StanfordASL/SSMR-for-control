@@ -5,7 +5,7 @@ from copy import deepcopy
 
 
 def slice_trajectories(data, interval: list):
-    dataTrunc = data.copy()
+    dataTrunc = deepcopy(data)
     ntraj = len(data)
     for traj in range(ntraj):
         # truncate time array
@@ -103,7 +103,7 @@ def Rauton(RDInfo):
     W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
     polynomialOrder = RDInfo['reducedDynamics']['polynomialOrder']
     phi = lambda x: multivariate_polynomial(x, polynomialOrder)
-    Rauton = lambda y: W_r @ phi(y)
+    Rauton = lambda y: W_r @ phi(y) # / 10
     return Rauton
 
 
@@ -111,6 +111,8 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     undelayed = undelayedData[embed_coords, :]
     buf = [undelayed]
     for delta in list(range(1, up_to_delay+1)):
-        buf.append(np.roll(undelayed, delta))
+        delayed_by_delta = np.roll(undelayed, -delta)
+        delayed_by_delta[:, -delta:] = 0
+        buf.append(delayed_by_delta)
     delayedData = np.vstack(buf)
     return delayedData
