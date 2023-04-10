@@ -24,7 +24,7 @@ plt.rc('figure', autolayout=True)
 #     'h_pad': 1.0
 # }
 
-COLORS = ['tab:blue', 'tab:orange', 'tab:green']
+COLORS = ['tab:blue', 'tab:orange', 'tab:green', "tab:red", "tab:purple", "tab:brown", "black", "cyan"]
 
 TRAJ_COLORMAP = plt.cm.cool
 TRAJ_LINEWIDTH = 1
@@ -69,7 +69,7 @@ def traj_3D_xyz(x, y, z, ax=None, color='tab:blue', show=True):
         return ax
 
 
-def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=None, show=True):
+def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=None, show=True, highlight_idx=[]):
 
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
@@ -88,6 +88,10 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
             ax.plot(Data[xyz_idx[coord][0]][traj][0],
                     Data[xyz_idx[coord][0]][traj][1][xyz_idx[coord][1], :],
                     color=colors[i], ls=ls, lw=TRAJ_LINEWIDTH)
+        for idx in highlight_idx:
+            ax.plot(Data[xyz_idx[coord][0]][idx][0],
+                    Data[xyz_idx[coord][0]][idx][1][xyz_idx[coord][1], :],
+                    color='tab:green', ls=ls, lw=TRAJ_LINEWIDTH*1.2)
         ax.set_ylabel(xyz_names[coord])
         ax.set_xlabel(r"$t$")
         ax.set_xmargin(0)
@@ -201,3 +205,19 @@ def reduced_coordinates_gradient(t, gradients, labels=None, how="norm", ax=None,
         plt.show()
     else:
         return ax
+    
+
+def dependence_of_xdot_on_inputs(xdot, u):
+
+    fig, axs = plt.subplots(1, u.shape[0], figsize=(10, 3))
+
+    for i, ax in enumerate(axs):
+        x = u[i, :]
+        # y = np.linalg.norm(xdot, axis=0).reshape(-1, 1)
+        y = xdot.T
+        for j in range(y.shape[1]):
+            ax.scatter(x, y[:, j], color=COLORS[j])
+        ax.set_xlabel(rf"$u_{i+1}$")
+        ax.set_ylabel(r"$|\dot{x}|$")
+    
+    plt.show()

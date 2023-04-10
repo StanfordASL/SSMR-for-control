@@ -2,6 +2,12 @@ import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 from scipy.integrate import solve_ivp
 from copy import deepcopy
+import pickle
+import os
+
+# from sympy.polys.monomials import itermonomials
+# from sympy.polys.orderings import monomial_key
+# import sympy as sp
 
 
 def slice_trajectories(data, interval: list):
@@ -22,6 +28,13 @@ def multivariate_polynomial(x, order: int):
     if not isinstance(order, int):
         order = int(order)
     return PolynomialFeatures(degree=order, include_bias=False).fit_transform(x.T).T
+    # dim = x.shape[0]
+    # zeta = sp.Matrix(sp.symbols('x1:{}'.format(dim + 1)))
+    # polynoms = sorted(itermonomials(list(zeta), order),
+    #                     key=monomial_key('grevlex', list(reversed(zeta))))
+    # polynoms = polynoms[1:]
+
+    # return sp.lambdify(zeta, polynoms)(*x[:, 0]) # , modules=[jnp, jsp.special])
 
 
 def lift_trajectories(IMInfo: dict, etaData):
@@ -55,7 +68,8 @@ def compute_trajectory_errors(yData1, yData2, inds='all'):
 
     for i in range(nTraj):
         # check if trajectories have same length
-        if yData1[0][1].shape[1] == yData1[0][1].shape[1]:
+        if yData1[i][1].shape[1] == yData2[i][1].shape[1]:
+            # print(yData1[i][1][inds, :].shape, yData2[i][1][inds, :].shape)
             trajErrors[i] = np.mean(np.linalg.norm(yData1[i][1][inds, :] - yData2[i][1][inds, :], axis=0)) / np.amax(np.linalg.norm(yData2[i][1][inds, :], axis=0))
             ampErrors[i] = np.mean(np.abs(np.linalg.norm(yData1[i][1][inds, :], axis=0) - np.linalg.norm(yData2[i][1][inds, :]))) / np.mean(np.linalg.norm(yData2[i][1][inds, :], axis=0))
         else:
@@ -66,7 +80,7 @@ def compute_trajectory_errors(yData1, yData2, inds='all'):
 
 
 def advectRD(RDInfo, etaData):
-    assert RDInfo['dynamicsType'] == 'flow', "Issue: only flow type dynamics implemented"
+    assert RDInfo['dynamicsType'] == 'flow', "Only flow type dynamics implemented"
     invT = lambda x: x
     T = lambda x: x
     W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
@@ -103,7 +117,7 @@ def Rauton(RDInfo):
     W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
     polynomialOrder = RDInfo['reducedDynamics']['polynomialOrder']
     phi = lambda x: multivariate_polynomial(x, polynomialOrder)
-    Rauton = lambda y: W_r @ phi(y) # / 10
+    Rauton = lambda x: W_r @ phi(x) # / 10
     return Rauton
 
 
@@ -116,3 +130,25 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
         buf.append(delayed_by_delta)
     delayedData = np.vstack(buf)
     return delayedData
+
+
+def import_pos_data(data_dir, rest_file, output_node, t_in=None, t_out=None):
+    with open(rest_file, 'rb') as file:
+        q_rest = np.array(pickle.load(file)['rest'])
+    decayData_files = sorted([f for f in os.listdir(data_dir) if '.pkl' in f]) # [0:1]
+    oData = []
+    for i, traj in enumerate(decayData_files):
+        with open(os.path.join(data_dir, traj), 'rb') as file:
+            data = pickle.load(file)
+        t = np.array(data['t'])
+        q_node = (np.array(data['q'])[:, 3*output_node:3*output_node+3] - q_rest[3*output_node:3*output_node+3]).T
+        # q_node_dot = np.gradient(q_node, axis=1)
+        # remove time until t_in
+        ind = (t_in <= t) & (t <= t_out)
+        t = t[ind] - t_in
+        q_node = q_node[:, ind]
+        # q_node_dot = q_node_dot[:, ind]
+        oData_traj = q_node
+        # oData_traj = np.vstack([q_tip, q_node_dot])
+        oData.append([t, oData_traj])
+    return oData
