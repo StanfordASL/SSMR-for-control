@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 plt.rcParams.update({'font.family': 'serif'})
-plt.rcParams.update({'font.sans-serif': 'Times New Roman'})
+plt.rcParams.update({'font.serif': 'FreeSerif'})
 plt.rcParams.update({'mathtext.fontset': 'cm'})
 
 FONTSCALE = 1.2
@@ -49,6 +49,8 @@ def traj_3D(Data, xyz_idx, xyz_names):
     ax.set_ylabel(xyz_names[1])
     ax.set_zlabel(xyz_names[2])
 
+    ax.set_aspect('equal', 'box')
+
     fig.show()
 
 
@@ -62,6 +64,8 @@ def traj_3D_xyz(x, y, z, ax=None, color='tab:blue', show=True):
     ax.set_xlabel(r'$x$')
     ax.set_ylabel(r'$y$')
     ax.set_zlabel(r'$z$')
+
+    ax.set_aspect('equal', 'box')
 
     if show:
         plt.show()
@@ -93,9 +97,8 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
                     Data[xyz_idx[coord][0]][idx][1][xyz_idx[coord][1], :],
                     color='tab:green', ls=ls, lw=TRAJ_LINEWIDTH*1.2)
         ax.set_ylabel(xyz_names[coord])
-        ax.set_xlabel(r"$t$")
         ax.set_xmargin(0)
-    
+    axs[-1].set_xlabel(r"$t$")    
     if show:
         plt.show()
     else:
@@ -105,15 +108,15 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
 def traj_xyz_txyz(t, x, y, z, axs=None, color='tab:blue', show=True):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
-    xyz_names = [r'$x$', r'$y$', r'$z$']
+    xyz_names = [r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]']
     for i, coord in enumerate([x, y, z]):
         ax = axs[i]
         ax.plot(t,
                 coord,
                 color=color, lw=TRAJ_LINEWIDTH)
         ax.set_ylabel(xyz_names[i])
-        ax.set_xlabel(r"$t$")
         ax.set_xmargin(0)
+    axs[-1].set_xlabel(r"$t$")
     if show:
         plt.show()
     else:
@@ -139,7 +142,7 @@ def mode_direction(modeDir, modeFreq):
     fig = plt.figure(figsize=(9, 4))
     ax = plt.axes(projection='3d')
     ls = [':', '--', '-.']
-    for i in range(3):
+    for i in range(modeDir.shape[1]):
         ax.plot3D([0, modeDir[0, i]],
                   [0, modeDir[1, i]],
                   [0, modeDir[2, i]],
@@ -150,22 +153,23 @@ def mode_direction(modeDir, modeFreq):
                   modeDir[2, i],
                   marker='o', color=COLORS[i])
     ax.legend()
-    ax.set_xlabel(r"$x$")
-    ax.set_ylabel(r"$y$")
-    ax.set_zlabel(r"$z$")
+    ax.set_xlabel(r"$x$ [mm]")
+    ax.set_ylabel(r"$y$ [mm]")
+    ax.set_zlabel(r"$z$ [mm]")
+    
+    ax.set_aspect('equal','box')
 
     plt.show()
 
 
 def inputs(t, u, ax=None, show=True):
-    assert u.shape[0] % 4 == 0
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(9, 4))
-    ax.plot(t, u[:4, :].T, lw=TRAJ_LINEWIDTH)
-    ax.set_ylabel(r"$u_{1-4}$")
+    ax.plot(t, u[:, :].T, lw=TRAJ_LINEWIDTH)
+    ax.set_ylabel(r"$u$")
     ax.set_xlabel(r"$t$")
     ax.set_xmargin(0)
-    ax.legend([rf"$u_{i}$" for i in [1, 2, 3, 4]])
+    ax.legend([rf"$u_{i}$" for i in range(1, u.shape[1]+1)])
     if show:
         plt.show()
     else:

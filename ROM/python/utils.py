@@ -132,23 +132,50 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     return delayedData
 
 
-def import_pos_data(data_dir, rest_file, output_node, t_in=None, t_out=None):
+def import_pos_data(data_dir, rest_file, output_node, t_in=0, t_out=None, return_inputs=False, return_velocity=False):
     with open(rest_file, 'rb') as file:
-        q_rest = np.array(pickle.load(file)['rest'])
-    decayData_files = sorted([f for f in os.listdir(data_dir) if '.pkl' in f]) # [0:1]
-    oData = []
-    for i, traj in enumerate(decayData_files):
+        rest_file = pickle.load(file)
+        try:
+            q_rest = rest_file['q'][0]
+        except:
+            q_rest = rest_file['rest']
+    files = sorted([f for f in os.listdir(data_dir) if '.pkl' in f]) # [0:1]
+    out_data = []
+    u = []
+    for i, traj in enumerate(files):
+        # if i % 3 != 0:
+        #     continue
         with open(os.path.join(data_dir, traj), 'rb') as file:
             data = pickle.load(file)
-        t = np.array(data['t'])
-        q_node = (np.array(data['q'])[:, 3*output_node:3*output_node+3] - q_rest[3*output_node:3*output_node+3]).T
-        # q_node_dot = np.gradient(q_node, axis=1)
+        t = np.array(data['t'])        
+        if output_node == 'all':
+            node_slice = np.s_[:]
+        else:
+            node_slice = np.s_[3*output_node:3*output_node+3]
+        if len(data['q']) > 0:
+            q_node = (np.array(data['q'])[:, node_slice] - q_rest[node_slice]).T
+        elif len(data['z']) > 0:
+            q_node = (np.array(data['z'])[:, 3:] - q_rest[node_slice]).T
+        else:
+            raise RuntimeError("Cannot find data for desired node")
         # remove time until t_in
-        ind = (t_in <= t) & (t <= t_out)
+        ind = (t_in <= t)
+        if t_out is not None:
+            ind = ind & (t <= t_out)
         t = t[ind] - t_in
         q_node = q_node[:, ind]
-        # q_node_dot = q_node_dot[:, ind]
-        oData_traj = q_node
-        # oData_traj = np.vstack([q_tip, q_node_dot])
-        oData.append([t, oData_traj])
-    return oData
+        if return_velocity:
+            v_node = np.array(data['v'])[:, node_slice].T
+            data_traj = np.hstack((q_node, v_node))
+        else:
+            data_traj = q_node
+        out_data.append([t, data_traj])
+        if return_inputs:
+            u.append(np.array(data['u']).T)
+    if len(out_data) == 1:
+        # print("Only one trajectory found in folder")
+        out_data, u = out_data[0], u[0]
+    if return_inputs:
+        return out_data, u
+    else:
+        return out_data
