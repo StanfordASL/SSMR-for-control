@@ -191,7 +191,7 @@ if n>2
         end
         Ejj=Ejjn;
         [rr,cc]=size(Ejj);
-        sols=[sols; jj*ones(rr,1) Ejj zeros(rr,n-1-cc)];
+        sols=[sols; double(jj).*ones(rr,1) Ejj zeros(rr,n-1-cc)];
     end
     sols=[sols; ones(1,n)];
     E=sortrows(sols);

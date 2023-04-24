@@ -227,12 +227,13 @@ def dominant_displacement_modes(RDInfo, Vde, SSMDim, tip_node, n_nodes):
     redDynLinearPart = np.array(RDInfo['reducedDynamics']['coefficients'])[:, :2*rDOF]
     redStiffnessMat = -redDynLinearPart[rDOF:, :rDOF]
     w2, UconsRedDyn = np.linalg.eig(redStiffnessMat)
+    print(w2)
     sorted_idx = np.argsort(w2)
     _, UconsRedDyn = np.diag(np.sqrt(w2[sorted_idx])), UconsRedDyn[:, sorted_idx]
     Ucons = np.kron(np.eye(2), UconsRedDyn)
     Vcons = Vde @ Ucons
     modesDir = outdofsMat @ Vcons[:, :rDOF]
-    modesFreq = np.abs(RDInfo['eigenvaluesLinPartFlow']).flatten()[:3]
+    modesFreq = np.imag(RDInfo['eigenvaluesLinPartFlow']).flatten()[:rDOF]
     return modesDir, modesFreq
 
 
