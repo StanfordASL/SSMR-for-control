@@ -377,7 +377,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
                 'x': x
             })
     for traj in test_trajectories:
-        z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], traj['z'], x0=traj['x'][:, 0])
+        z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0])
         rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :] - traj['z'][:3])**2, axis=0))) / len(traj['t']))
         print(f"({traj['name']}): RMSE = {rmse:.4f}")
         test_results[traj['name']] = {

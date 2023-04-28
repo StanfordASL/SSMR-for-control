@@ -111,7 +111,7 @@ def integrateFlows(flow, etaData):
                         t_span=[tStart, tEnd],
                         t_eval=np.linspace(tStart, tEnd, nSamp),
                         y0=etaData[i][1][:, 0],
-                        method='DOP853',
+                        method='RK45',
                         vectorized=True,
                         rtol=1e-3,
                         atol=1e-3)
@@ -167,12 +167,12 @@ def import_pos_data(data_dir, rest_file, output_node, t_in=0, t_out=None, return
         t = t[ind] - t_in
         q_node = q_node[:, ind]
         if return_velocity:
-            v_node = np.array(data['v'])[:, node_slice].T
+            v_node = np.array(data['v'])[ind, node_slice].T
             data_traj = np.vstack((q_node, v_node))
         else:
             data_traj = q_node
         out_data.append([t, data_traj])
-        u.append(np.array(data['u']).T)
+        u.append(np.array(data['u'])[ind, :].T)
     if len(out_data) == 1:
         # print("Only one trajectory found in folder")
         out_data, u = out_data[0], u[0]
@@ -247,7 +247,7 @@ def regress_B(X, dxdt, dxdt_ROM, poly_u_order=1, alpha=0, method='ridge'):
     return B_learn
 
 
-def predict_open_loop(R, Vauton, t, u, z, x0, method='RK45'):
+def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
     uInterpFun = interp1d(t, u, axis=1, fill_value="extrapolate")
     uFun = lambda t: uInterpFun(t).reshape(-1, 1)
     R_t = lambda t, x: R(x, uFun(t))
@@ -257,7 +257,7 @@ def predict_open_loop(R, Vauton, t, u, z, x0, method='RK45'):
                     t_eval=t,
                     y0=x0,
                     method=method,
-                    vectorized=True,
+                    vectorized=False,
                     rtol=1e-3,
                     atol=1e-3)
     # resulting (predicted) open-loop trajectory in reduced coordinates

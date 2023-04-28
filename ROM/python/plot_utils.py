@@ -92,10 +92,11 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
         return axs
     
 
-def traj_xyz_txyz(t, x, y, z, axs=None, color='tab:blue', show=True):
+def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, show=True):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
-    xyz_names = [r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]']
+    if xyz_names is None:
+        xyz_names = [r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]']
     for i, coord in enumerate([x, y, z]):
         ax = axs[i]
         ax.plot(t,
