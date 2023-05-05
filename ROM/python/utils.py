@@ -28,7 +28,7 @@ def slice_trajectories(data, interval: list):
     return dataTrunc
 
 
-def multivariate_polynomial(x, order: int):
+def phi(x, order: int):
     # poly = PolynomialFeatures(degree=SSMOrder, include_bias=False).fit(x.T)
     # # print(poly.get_feature_names_out(['a', 'b', 'c', 'd', 'e', 'f']))
     # features = poly.transform(x.T)
@@ -47,7 +47,7 @@ def multivariate_polynomial(x, order: int):
 def lift_trajectories(IMInfo: dict, etaData):
     H = np.array(IMInfo['parametrization']['H'])
     SSMOrder = IMInfo['parametrization']['polynomialOrder']
-    phi = lambda x: multivariate_polynomial(x, SSMOrder)
+    phi = lambda x: phi(x, SSMOrder)
     map = lambda x: H @ phi(x)
     return transform_trajectories(map, etaData)
 
@@ -92,7 +92,7 @@ def advectRD(RDInfo, etaData):
     T = lambda x: x
     W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
     polynomialOrder = int(RDInfo['conjugateDynamics']['polynomialOrder'])
-    phi = lambda x: multivariate_polynomial(x, polynomialOrder)
+    phi = lambda x: phi(x, polynomialOrder)
     N = lambda t, y: W_r @ phi(np.atleast_2d(y))
     zData = transform_trajectories(invT, etaData)
     zRec = integrateFlows(N, zData)
@@ -257,7 +257,7 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
                     t_eval=t,
                     y0=x0,
                     method=method,
-                    vectorized=False,
+                    vectorized=True,
                     rtol=1e-3,
                     atol=1e-3)
     # resulting (predicted) open-loop trajectory in reduced coordinates

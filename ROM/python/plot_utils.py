@@ -62,6 +62,19 @@ def traj_3D_xyz(x, y, z, ax=None, color='tab:blue', show=True):
         plt.show()
     else:
         return ax
+    
+
+def traj_2D_xy(x, y, ax=None, color="tab:blue", show=True):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 8))
+    ax.plot(x, y, color=color, lw=TRAJ_LINEWIDTH)
+    ax.set_xlabel(r'$x$')
+    ax.set_ylabel(r'$y$')
+    ax.set_aspect('equal', 'box')
+    if show:
+        plt.show()
+    else:
+        return ax
 
 
 def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=None, show=True, highlight_idx=[]):
@@ -92,17 +105,21 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
         return axs
     
 
-def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, show=True):
+def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, show=True, rotate_yticks=False):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
     if xyz_names is None:
         xyz_names = [r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]']
+    if rotate_yticks:
+        y_tick_rotation = 0
+    else:
+        y_tick_rotation = 90
     for i, coord in enumerate([x, y, z]):
         ax = axs[i]
         ax.plot(t,
                 coord,
                 color=color, lw=TRAJ_LINEWIDTH)
-        ax.set_ylabel(xyz_names[i])
+        ax.set_ylabel(xyz_names[i], rotation=y_tick_rotation, ha="right")
         ax.set_xmargin(0)
     axs[-1].set_xlabel(r"$t$")
     if show:
@@ -199,4 +216,20 @@ def dependence_of_xdot_on_inputs(xdot, u):
             ax.scatter(x, y[:, j], color=COLORS[j])
         ax.set_xlabel(rf"$u_{i+1}$")
         ax.set_ylabel(r"$|\dot{x}|$")
+    plt.show()
+
+
+def adiabatic_model_weights(t, weights, model_names):
+    fig, ax = plt.subplots(1, 1, figsize=(9, 3))
+    # for i, name in enumerate(model_names):
+    #     ax.plot(t, weights[i, :].T, color=COLORS[i], label=name)
+    # ax.legend(loc="lower right")
+    ax.plot(t, weights.T)
+    ax.legend(model_names, ncol=3)
+    ax.set_xlabel(r"$t$ [s]")
+    ax.set_ylabel(r"$g_p(t)$")
+    ax.set_xmargin(0)
+    ax.set_ylim(0, 1)
+    ax.set_xlim(t[0], t[-1])
+    fig.suptitle("Model weights")
     plt.show()

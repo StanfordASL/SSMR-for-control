@@ -13,7 +13,7 @@ np.set_printoptions(linewidth=300)
 
 
 SETTINGS = {
-    'observables': "delay-embedding", # "pos-vel", # 
+    'observables': "pos-vel", # "delay-embedding", # 
 
     'robot_dir': "/home/jonas/Projects/stanford/soft-robot-control/examples/trunk",
     'tip_node': 51,
@@ -35,7 +35,11 @@ SETTINGS = {
         "north",
         "west",
         "south",
-        "east"
+        "east",
+        "northwest",
+        "southwest",
+        "southeast",
+        "northeast"
     ],
     'decay_dir': "decay/",
     'rest_file': "rest_qv.pkl",
@@ -88,8 +92,8 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
         else:
             model_save_dir = join(model_dir, f"model_{int(models[-1].split('_')[-1])+1:02}")
     else:
-        # save model to a new dir called SSMmodel inside the data_dir
-        model_save_dir = join(data_dir, "SSMmodel")
+        # save model to a new dir called SSMmodel_{observable} inside the data_dir
+        model_save_dir = join(data_dir, f"SSMmodel_{SETTINGS['observables']}")
     if not exists(model_save_dir):
         mkdir(model_save_dir)
     if PLOTS and not exists(join(model_save_dir, "plots")):
@@ -109,7 +113,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
 
     # ====== Change of coordinates: shift oData to the offset equilibrium position ====== #
     # pre-tensioned equilibrium position
-    q_eq = np.mean([Data['oData'][i][1][:, -1] for i in range(nTRAJ)], axis=0)
+    q_eq = np.mean([Data['oData'][i][1][:, -1] for i in range(nTRAJ)], axis=0)    
     for i in range(nTRAJ):
         Data['oData'][i][1] = (Data['oData'][i][1].T - q_eq).T
     with open(join(model_save_dir, "pre-tensioned_rest_q.pkl"), "wb") as f:
@@ -295,10 +299,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     # ===== Influence of control ====== #
     print("====== Learn influence of control ======")
     # define mappings
-    Rauton = lambda x: RDInfo['reducedDynamics']['coefficients'] @ utils.multivariate_polynomial(x, RDInfo['reducedDynamics']['polynomialOrder'])
-    Vauton = lambda x: IMInfo['parametrization']['H'] @ utils.multivariate_polynomial(x, IMInfo['parametrization']['polynomialOrder'])
+    Rauton = lambda x: RDInfo['reducedDynamics']['coefficients'] @ utils.phi(x, RDInfo['reducedDynamics']['polynomialOrder'])
+    Vauton = lambda x: IMInfo['parametrization']['H'] @ utils.phi(x, IMInfo['parametrization']['polynomialOrder'])
     if SETTINGS['observables'] == "pos-vel":
-        Wauton = lambda y: IMInfo['chart']['H'] @ utils.multivariate_polynomial(y, IMInfo['chart']['polynomialOrder'])
+        Wauton = lambda y: IMInfo['chart']['H'] @ utils.phi(y, IMInfo['chart']['polynomialOrder'])
     elif SETTINGS['observables'] == "delay-embedding":
         Wauton = lambda y: Vde.T @ y
     else:
@@ -307,8 +311,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
                                     rest_file=join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                     output_node=SETTINGS['tip_node'], return_inputs=True)
-    z = (z.T - q_eq).T
-    u = (u.T - u_eq).T
+    if SETTINGS['observables'] == "pos-vel":
+        z = (z.T - q_eq[3*SETTINGS['tip_node']:3*SETTINGS['tip_node']+3]).T
+    else:
+        z = (z.T - q_eq).T    u = (u.T - u_eq).T
     y = assemble_observables(z)
     x = Wauton(y)
     # train/test split on input training data
@@ -334,7 +340,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     dxdt_ROM = Rauton(x_train)
 
     # ====== regress B matrix ====== #
-    assemble_features = lambda u, x: utils.multivariate_polynomial(u, order=SETTINGS['poly_u_order']) # utils.multivariate_polynomial(np.vstack([u, x]), order=SETTINGS['poly_u_order']) # 
+    assemble_features = lambda u, x: utils.phi(u, order=SETTINGS['poly_u_order']) # utils.phi(np.vstack([u, x]), order=SETTINGS['poly_u_order']) # 
     X = assemble_features(u_train, x_train)
     B_learn = utils.regress_B(X, dxdt, dxdt_ROM, alpha=0, method='ridge')
     print(f"Frobenius norm of B_learn: {np.linalg.norm(B_learn, ord='fro'):.4f}")
@@ -365,7 +371,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
         (t, z), u = utils.import_pos_data(data_dir=traj_dir,
                                         rest_file=join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                         output_node=SETTINGS['tip_node'], return_inputs=True, traj_index=0)
-        z = (z.T - q_eq).T
+        if SETTINGS['observables'] == "pos-vel":
+            z = (z.T - q_eq[3*SETTINGS['tip_node']:3*SETTINGS['tip_node']+3]).T
+        else:
+            z = (z.T - q_eq).T
         u = (u.T - u_eq).T
         y = assemble_observables(z)
         x = Wauton(y)
