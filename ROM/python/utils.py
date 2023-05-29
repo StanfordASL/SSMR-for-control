@@ -47,8 +47,7 @@ def phi(x, order: int):
 def lift_trajectories(IMInfo: dict, etaData):
     H = np.array(IMInfo['parametrization']['H'])
     SSMOrder = IMInfo['parametrization']['polynomialOrder']
-    phi = lambda x: phi(x, SSMOrder)
-    map = lambda x: H @ phi(x)
+    map = lambda x: H @ phi(x, SSMOrder)
     return transform_trajectories(map, etaData)
 
 
@@ -91,9 +90,8 @@ def advectRD(RDInfo, etaData):
     invT = lambda x: x
     T = lambda x: x
     W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
-    polynomialOrder = int(RDInfo['conjugateDynamics']['polynomialOrder'])
-    phi = lambda x: phi(x, polynomialOrder)
-    N = lambda t, y: W_r @ phi(np.atleast_2d(y))
+    polynomialOrder = int(RDInfo['reducedDynamics']['polynomialOrder'])
+    N = lambda t, y: W_r @ phi(np.atleast_2d(y), polynomialOrder)
     zData = transform_trajectories(invT, etaData)
     zRec = integrateFlows(N, zData)
     etaRec = transform_trajectories(T, zRec)
@@ -270,7 +268,7 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
     return zTraj
 
 
-def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, settings, test_results):
+def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, settings, test_results):
     SSM_model = {'model': {}, 'params': {}}
     SSM_model['model']['w_coeff'] = IMInfo['parametrization']['H']
     SSM_model['model']['r_coeff'] = RDInfo['reducedDynamics']['coefficients']
@@ -280,6 +278,8 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, settings, test_
     SSM_model['params']['state_dim'] = settings['SSMDim']
     SSM_model['params']['u_order'] = settings['poly_u_order']
     SSM_model['params']['input_dim'] = settings['input_dim']
+    SSM_model['model']['q_eq'] = q_eq
+    SSM_model['model']['u_eq'] = u_eq
     if settings['observables'] == "delay-embedding":
         SSM_model['model']['V'] = Vde
         SSM_model['model']['v_coeff'] = None
@@ -300,3 +300,58 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, settings, test_
         yaml.dump(settings, f)
     with open(join(model_save_dir, 'test_results.yaml'), 'w') as f:
         yaml.dump(test_results, f)
+
+def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target=True):
+    dt = 0.01
+    N = len(t)-1
+    x = np.full((6, N+1), np.nan)
+    y_pred = np.full((15, N+1), np.nan)
+    y_pred[:, 0] = y0
+    y_bar = np.full((15, N+1), np.nan)
+    u_bar = np.full((8, N+1), np.nan)
+    xdot = np.full((6, N+1), np.nan)
+    weights = np.full((9, N+1), np.nan)
+
+    transform = interpolator.transform  # timed_transform
+
+    for i in range(N):
+        # compute the weights used at this timestep
+        try:
+            xy = y0[:2] # y_target[:2, i]
+            # simplex = tri.find_simplex(y[-3:-1, i])
+            # b = tri.transform[simplex, :2] @ (y[-3:-1, i] - tri.transform[simplex, 2])
+            # c = np.r_[b, 1 - b.sum()]
+            # point_idx = tri.simplices[simplex]
+            # weights[point_idx, i] = c
+            # compute and integrate the dynamics at this timestep
+            y_bar[:, i] = np.tile(transform(xy, 'q_bar'), 1 + 4) # y_target[:, i] # 
+            u_bar[:, i] = transform(xy, 'u_bar')
+            # x[i] = V[i]^T @ (y[i] - y_bar[i])
+            if i == 0:
+                x[:, i] = transform(xy, 'V').T @ (y0 - y_bar[:, i]) # y[:, i]) #
+            # xdot[i] = R(x[i]) + B[i] @ (u[i] - u_bar[i])
+            xdot[:, i] = (transform(xy, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), 3)).flatten() + transform(xy, 'B_r') @ (u[:, i] - u_bar[:, i]) # -0.5 * np.eye(6) @ x[:, i] # -0.001 * np.ones(6) # 
+            # forward Euler: x[i+1] = x[i] + dt * xdot[i]
+            x[:, i+1] = x[:, i] + dt * xdot[:, i]
+            # y[i+1] = W(x[i+1]) + y_bar[i]
+            y_pred[:, i+1] = (transform(xy, 'w_coeff') @ phi(x[:, i+1].reshape(-1, 1), 3)).T + y_bar[:, i]
+            if not know_target:
+                y_target[:, i+1] = y_pred[:, i+1]
+        except Exception as e:
+            # print("i =", i)
+            # print("y_pred[i-1]:", y_pred[:, i-1])
+            # print("y[i-1]:", y_target[:, i-1])
+            # print("x[i-1]:", x[:, i-1])
+            # print("=======================================")
+            # print("y_pred[i]:", y_pred[:, i])
+            # print("y[i]:", y_target[:, i])
+            # print("x[i]:", x[:, i])
+            # print("=======================================")
+            # print("y_pred[i+1]:", y_pred[:, i+1])
+            # print("y[i+1]:", y_target[:, i+1])
+            # print("x[i+1]:", x[:, i+1])
+            # print("=======================================")
+            # raise(e)
+            break
+            # raise e
+    return t, x, y_pred, xdot, y_bar, u_bar, weights

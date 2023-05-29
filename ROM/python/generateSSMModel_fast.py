@@ -1,6 +1,6 @@
 import numpy as np
 from copy import deepcopy
-from os.path import join, exists
+from os.path import join, exists, isdir
 from os import listdir, mkdir
 import utils as utils
 import plot_utils as plot
@@ -8,12 +8,16 @@ import matplotlib.pyplot as plt
 from time import time
 import yaml
 import pickle
+from tqdm.auto import tqdm
 
 np.set_printoptions(linewidth=300)
 
 
 SETTINGS = {
-    'observables': "pos-vel", # "delay-embedding", # 
+    'observables': "delay-embedding", # "pos-vel", #
+    'reduced_coordinates': "local",
+
+    'use_ssmlearn': "py", # "matlab"
 
     'robot_dir': "/home/jonas/Projects/stanford/soft-robot-control/examples/trunk",
     'tip_node': 51,
@@ -28,19 +32,20 @@ SETTINGS = {
     'SSMDim': 6,
     'SSMOrder': 3,
     'ROMOrder': 3,
+    'RDType': "flow",
 
-    'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic",
-    'data_subdirs': [
-        "origin",
-        "north",
-        "west",
-        "south",
-        "east",
-        "northwest",
-        "southwest",
-        "southeast",
-        "northeast"
-    ],
+    'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_N=100",
+    # 'data_subdirs': [
+    #     "origin",
+    #     "north",
+    #     "west",
+    #     "south",
+    #     "east",
+    #     "northwest",
+    #     "southwest",
+    #     "southeast",
+    #     "northeast"
+    # ],
     'decay_dir': "decay/",
     'rest_file': "rest_qv.pkl",
     'model_save_dir': "SSMmodels/",
@@ -55,7 +60,10 @@ SETTINGS = {
     'input_test_data_dir': ["open-loop_circle", ],
     'input_train_ratio': 0.8
 }
-PLOTS = 'save' # 'show' # False
+SETTINGS['data_subdirs'] = sorted([dir for dir in listdir(SETTINGS['data_dir']) if isdir(join(SETTINGS['data_dir'], dir))])[8:]
+print(SETTINGS['data_subdirs'])
+
+PLOTS = False # 'save', 'show', False ('show' shows and saves plots, 'save' only saves plots, False does nothing)
 
 if SETTINGS['observables'] == "delay-embedding":
     # observables are position of tip + n_delay delay embeddings of the tip position
@@ -119,9 +127,9 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     with open(join(model_save_dir, "pre-tensioned_rest_q.pkl"), "wb") as f:
         pickle.dump(q_eq, f)
     # pre-tensioning, mean control input
-    with open(join(decay_data_dir, "info.yaml"), "r") as f:
-        info = yaml.safe_load(f)
-    u_eq = np.array(info['pre_tensioning'])
+    with open(join(decay_data_dir, "pre_tensioning.pkl"), "rb") as f:
+        pre_tensioning = pickle.load(f)
+    u_eq = np.array(pre_tensioning)
 
     # ====== assemble observables for each decay trajectory -- yData ====== #
     Data['yData'] = deepcopy(Data['oData'])
@@ -156,70 +164,94 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
 
 
     # ====== Perform SVD on displacement field ====== #
-    print("====== Perform SVD on displacement field ======")
-    show_modes = 9
-    Xsnapshots = np.hstack([DataTrunc[1] for DataTrunc in Data[svd_data]])
-    v, s = utils.sparse_svd(Xsnapshots, up_to_mode=max(SETTINGS['SSMDim'], show_modes))
-
     Data['etaDataTrunc'] = deepcopy(Data['oDataTrunc'])
-    if SETTINGS['observables'] == "delay-embedding":
-        Vde = v[:, :SETTINGS['SSMDim']]
+    if SETTINGS['reduced_coordinates'] == "global":
+        with open(join(SETTINGS['data_dir'], "SSM_model_origin.pkl"), "rb") as f:
+            Vde = pickle.load(f)['model']['V']
         for i in range(nTRAJ):
-            Data['etaDataTrunc'][i][1] = Vde.T @ Data[svd_data][i][1]
-    elif SETTINGS['observables'] == "pos-vel":
-        assert SETTINGS['SSMDim'] % 2 == 0
-        Vde = np.kron(np.eye(2), v[:, :SETTINGS['SSMDim']//2])
-        for i in range(nTRAJ):
-            Data['etaDataTrunc'][i][1] = Vde.T @ np.vstack((Data[svd_data][i][1], np.gradient(Data[svd_data][i][1], SETTINGS['dt'], axis=1)))
+                Data['etaDataTrunc'][i][1] = Vde.T @ Data[svd_data][i][1]
     else:
-        raise RuntimeError("Unknown type of observables, should be ['delay-embedding', 'pos-vel']")
+        print("====== Perform SVD on displacement field ======")
+        show_modes = 9
+        Xsnapshots = np.hstack([DataTrunc[1] for DataTrunc in Data[svd_data]])
+        v, s = utils.sparse_svd(Xsnapshots, up_to_mode=max(SETTINGS['SSMDim'], show_modes))
+        if SETTINGS['observables'] == "delay-embedding":
+            Vde = v[:, :SETTINGS['SSMDim']]
+            for i in range(nTRAJ):
+                Data['etaDataTrunc'][i][1] = Vde.T @ Data[svd_data][i][1]
+        elif SETTINGS['observables'] == "pos-vel":
+            assert SETTINGS['SSMDim'] % 2 == 0
+            Vde = np.kron(np.eye(2), v[:, :SETTINGS['SSMDim']//2])
+            for i in range(nTRAJ):
+                Data['etaDataTrunc'][i][1] = Vde.T @ np.vstack((Data[svd_data][i][1], np.gradient(Data[svd_data][i][1], SETTINGS['dt'], axis=1)))
+        else:
+            raise RuntimeError("Unknown type of observables, should be ['delay-embedding', 'pos-vel']")
 
-    if PLOTS:
-        # Plot variance description: we expect the first couple of modes to capture almost all variance.
-        # Note we assume data centered around the origin, which is the fixed point of our system.
-        plot.pca_modes(s**2, up_to_mode=show_modes, show=(PLOTS == 'show'))
-        if PLOTS == 'save':
-            plt.savefig(join(model_save_dir, "plots", f"pca_modes.png"), bbox_inches='tight')
-        # plot first three reduced coordinates
-        plot.traj_xyz(Data,
-                    xyz_idx=[('etaDataTrunc', 0), ('etaDataTrunc', 1), ('etaDataTrunc', 2)],
-                    xyz_names=[r'$x_1$', r'$x_2$', r'$x_3$'], show=(PLOTS == 'show'))
-        if PLOTS == 'save':
-            plt.savefig(join(model_save_dir, "plots", f"decay_reduced_coords_123.png"), bbox_inches='tight')
-
+        if PLOTS:
+            # Plot variance description: we expect the first couple of modes to capture almost all variance.
+            # Note we assume data centered around the origin, which is the fixed point of our system.
+            plot.pca_modes(s**2, up_to_mode=show_modes, show=(PLOTS == 'show'))
+            if PLOTS == 'save':
+                plt.savefig(join(model_save_dir, "plots", f"pca_modes.png"), bbox_inches='tight')
+            # plot first three reduced coordinates
+            plot.traj_xyz(Data,
+                        xyz_idx=[('etaDataTrunc', 0), ('etaDataTrunc', 1), ('etaDataTrunc', 2)],
+                        xyz_names=[r'$x_1$', r'$x_2$', r'$x_3$'], show=(PLOTS == 'show'))
+            if PLOTS == 'save':
+                plt.savefig(join(model_save_dir, "plots", f"decay_reduced_coords_123.png"), bbox_inches='tight')
 
     # ====== Train/test split for decay data ====== #
     indTest = SETTINGS['decay_test_set']
     indTrain = [i for i in range(nTRAJ) if i not in indTest]
 
-    # ====== Start Matlab engine and SSMLearn ====== #
-    print("====== Start Matlab engine and SSMLearn ======")
-    ssm = utils.start_matlab_ssmlearn("/home/jonas/Projects/stanford/SSMR-for-control")
 
-    # make data ready for Matlab
-    yDataTruncTrain_matlab = utils.numpy_to_matlab([Data['yDataTrunc'][i] for i in indTrain])
-    etaDataTruncTrain_matlab = utils.numpy_to_matlab([Data['etaDataTrunc'][i] for i in indTrain])
 
     print("====== Learn SSM geometry and reduced dynamics ======")
     # SSM geometry
-    IMInfo = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-                            'reducedCoordinates', etaDataTruncTrain_matlab, 'l_vals', 0.)
-    if SETTINGS['observables'] == "pos-vel":
-        IMInfoInv = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-                                'reducedCoordinates', yDataTruncTrain_matlab)
-        for key in ['map', 'polynomialOrder', 'dimension', 'nonlinearCoefficients', 'phi', 'exponents', 'H']:
-            IMInfo['chart'][key] = IMInfoInv['parametrization'][key]
-
-    # SSM reduced dynamics
-    RDInfo = ssm.IMDynamicsFlow(etaDataTruncTrain_matlab, 'R_PolyOrd', SETTINGS['ROMOrder'], 'style', 'default', 'l_vals', 0.)
-
-    # quit matlab engine
-    ssm.quit()
-
-    # convert matlab double arrays to numpy arrays
-    utils.matlab_info_dict_to_numpy(IMInfo)
-    utils.matlab_info_dict_to_numpy(RDInfo)
-
+    if SETTINGS['use_ssmlearn'] == "matlab":
+        # ====== Start Matlab engine and SSMLearn ====== #
+        print("====== Start Matlab engine and SSMLearn ======")
+        ssm = utils.start_matlab_ssmlearn("/home/jonas/Projects/stanford/SSMR-for-control")
+        # make data ready for Matlab
+        yDataTruncTrain_matlab = utils.numpy_to_matlab([Data['yDataTrunc'][i] for i in indTrain])
+        etaDataTruncTrain_matlab = utils.numpy_to_matlab([Data['etaDataTrunc'][i] for i in indTrain])
+        IMInfo = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+                                'reducedCoordinates', etaDataTruncTrain_matlab, 'l_vals', 0.)
+        if SETTINGS['observables'] == "pos-vel":
+            IMInfoInv = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+                                    'reducedCoordinates', yDataTruncTrain_matlab)
+            for key in ['map', 'polynomialOrder', 'dimension', 'nonlinearCoefficients', 'phi', 'exponents', 'H']:
+                IMInfo['chart'][key] = IMInfoInv['parametrization'][key]
+        # SSM reduced dynamics
+        RDInfo = ssm.IMDynamicsFlow(etaDataTruncTrain_matlab, 'R_PolyOrd', SETTINGS['ROMOrder'], 'style', 'default', 'l_vals', 0.)
+        # quit matlab engine
+        ssm.quit()
+        # convert matlab double arrays to numpy arrays
+        utils.matlab_info_dict_to_numpy(IMInfo)
+        utils.matlab_info_dict_to_numpy(RDInfo)
+    elif SETTINGS['use_ssmlearn'] == "py":
+        print("====== Using SSMLearnPy ======")
+        from ssmlearnpy import SSMLearn
+        ssm = SSMLearn(
+            t=[Data['oDataTrunc'][i][0] for i in indTrain], 
+            x=[Data['yDataTrunc'][i][1] for i in indTrain], 
+            reduced_coordinates=[Data['etaDataTrunc'][i][1] for i in indTrain],
+            ssm_dim=SETTINGS['SSMDim'], 
+            dynamics_type=SETTINGS['RDType']
+        )
+        # find parametrization of SSM and reduced dynamics on SSM
+        ssm.get_parametrization(poly_degree=SETTINGS['SSMOrder'])    
+        ssm.get_reduced_dynamics(poly_degree=SETTINGS['ROMOrder'])
+        # Save relevant coeffs and params into dictss which resemble the outputs of the Matlab SSMLearn package
+        IMInfo = {'parametrization': {
+            'polynomialOrder': SETTINGS['SSMOrder'],
+            'H': ssm.decoder.map_info['coefficients']
+        }, 'chart': {}}
+        RDInfo = {'reducedDynamics': {
+            'polynomialOrder': SETTINGS['ROMOrder'],
+            'coefficients': ssm.reduced_dynamics.map_info['coefficients'],
+            'eigenvaluesLinPartFlow': ssm.reduced_dynamics.map_info['eigenvalues_lin_part']
+        }, 'dynamicsType': SETTINGS['RDType']}
 
     # ====== Analyze autonomous SSM: accuracy of geometry and reduced dynamics ====== #
     if PLOTS:
@@ -314,7 +346,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     if SETTINGS['observables'] == "pos-vel":
         z = (z.T - q_eq[3*SETTINGS['tip_node']:3*SETTINGS['tip_node']+3]).T
     else:
-        z = (z.T - q_eq).T    u = (u.T - u_eq).T
+        print(z)
+        print(q_eq)
+        z = (z.T - q_eq).T    
+    u = (u.T - u_eq).T
     y = assemble_observables(z)
     x = Wauton(y)
     # train/test split on input training data
@@ -367,7 +402,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
             'x': x_test
         }]
     for test_traj in SETTINGS['input_test_data_dir']:
-        traj_dir = join(data_dir, test_traj)
+        traj_dir = join(SETTINGS['robot_dir'], "dataCollection", test_traj)
         (t, z), u = utils.import_pos_data(data_dir=traj_dir,
                                         rest_file=join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                         output_node=SETTINGS['tip_node'], return_inputs=True, traj_index=0)
@@ -386,7 +421,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
                 'x': x
             })
     for traj in test_trajectories:
-        z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0])
+        try:
+            z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0])
+        except Exception as e:
+            z_pred = np.nan * np.ones_like(traj['z'])
         rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :] - traj['z'][:3])**2, axis=0))) / len(traj['t']))
         print(f"({traj['name']}): RMSE = {rmse:.4f}")
         test_results[traj['name']] = {
@@ -406,10 +444,12 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
 
 
     # ====== Save SSM model to folder, along with settings and test results ====== #
-    utils.save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, SETTINGS, test_results)
+    utils.save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, SETTINGS, test_results)
     print(f"====== Saved SSM model to folder {model_save_dir} ======")
 
-
+    # Close all plots for this model
+    plt.close('all')
+    # Display total runtime
     end_time = time()
     print(f"====== Finished after total runtime: {(end_time - start_time):.2f} sec ======")
 
@@ -419,6 +459,6 @@ if __name__ == "__main__":
         data_dir = SETTINGS['data_dir']
         generate_ssmr_model(data_dir, save_model_to_data_dir=False)
     else:
-        for subdir in SETTINGS['data_subdirs']:
+        for subdir in tqdm(SETTINGS['data_subdirs']):
             data_dir = join(SETTINGS['data_dir'], subdir)
             generate_ssmr_model(data_dir, save_model_to_data_dir=True)

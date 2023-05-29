@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
 
 plt.rcParams.update({'font.family': 'serif'})
@@ -64,10 +65,10 @@ def traj_3D_xyz(x, y, z, ax=None, color='tab:blue', show=True):
         return ax
     
 
-def traj_2D_xy(x, y, ax=None, color="tab:blue", show=True):
+def traj_2D_xy(x, y, ax=None, color="tab:blue", ls="-", show=True, label=""):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(9, 8))
-    ax.plot(x, y, color=color, lw=TRAJ_LINEWIDTH)
+    ax.plot(x, y, color=color, ls=ls, lw=TRAJ_LINEWIDTH, label=label)
     ax.set_xlabel(r'$x$')
     ax.set_ylabel(r'$y$')
     ax.set_aspect('equal', 'box')
@@ -105,7 +106,7 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
         return axs
     
 
-def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, show=True, rotate_yticks=False):
+def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, ls="-", show=True, label="", rotate_yticks=False):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
     if xyz_names is None:
@@ -118,7 +119,7 @@ def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, show=True, r
         ax = axs[i]
         ax.plot(t,
                 coord,
-                color=color, lw=TRAJ_LINEWIDTH)
+                color=color, ls=ls, lw=TRAJ_LINEWIDTH, label=label)
         ax.set_ylabel(xyz_names[i], rotation=y_tick_rotation, ha="right")
         ax.set_xmargin(0)
     axs[-1].set_xlabel(r"$t$")
@@ -233,3 +234,38 @@ def adiabatic_model_weights(t, weights, model_names):
     ax.set_xlim(t[0], t[-1])
     fig.suptitle("Model weights")
     plt.show()
+
+
+def prediction_accuracy_map(q_samples, rmse_samples, vmax=None, colorbar=True, cax=None, ax=None, show=True):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 9))
+    cmap = mpl.colors.LinearSegmentedColormap.from_list('rg',["forestgreen", "gold", "firebrick"], N=256) 
+    # cmap = mpl.cm.RdYlGn_r
+    sc = ax.scatter(q_samples[:, 0], q_samples[:, 1], s=30, c=rmse_samples, cmap=cmap, vmax=vmax, alpha=0.8)
+    nan_idx = np.isnan(rmse_samples)
+    ax.scatter(q_samples[nan_idx, 0], q_samples[nan_idx, 1], s=30, c="grey", alpha=0.8)
+    ax.set_xlabel(r"$x$ [mm]")
+    ax.set_ylabel(r"$y$ [mm]")
+    ax.set_aspect('equal','box')
+    if colorbar:
+        plt.colorbar(sc, aspect=20, ax=cax, fraction=1, pad=0.02, shrink=0.9, label="RSME [mm]")
+    if show:
+        plt.show()
+    else:
+        return ax
+    
+
+def boxplot(samples, vmax=None, xlabel="", ax=None, show=True):
+    samples = samples[~np.isnan(samples)]
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 2))
+    ax.boxplot(samples, vert=False, sym="", widths=0.5, medianprops=dict(color="tab:blue", linewidth=1.5))
+    ax.set_xlabel(xlabel)
+    if vmax is not None:
+        ax.set_xlim(0, vmax)
+    ax.yaxis.set_tick_params(labelleft=False)
+    ax.set_yticks([])
+    if show:
+        plt.show()
+    else:
+        return ax
