@@ -129,13 +129,18 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     return delayedData
 
 
-def import_pos_data(data_dir, rest_file, output_node, t_in=0, t_out=None, return_inputs=False, return_velocity=False, traj_index=np.s_[:]):
-    with open(rest_file, 'rb') as file:
-        rest_file = pickle.load(file)
-        try:
-            q_rest = rest_file['q'][0]
-        except:
-            q_rest = rest_file['rest']
+def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, t_in=0, t_out=None, return_inputs=False, return_velocity=False, traj_index=np.s_[:]):
+    if q_rest is not None:
+        q_rest = np.array(q_rest)
+    elif rest_file is not None:
+        with open(rest_file, 'rb') as file:
+            rest_file = pickle.load(file)
+            try:
+                q_rest = rest_file['q'][0]
+            except:
+                q_rest = rest_file['rest']
+    else:
+        raise ValueError('No rest file or rest position provided')
     files = sorted([f for f in listdir(data_dir) if 'snapshots.pkl' in f])
     files = files[traj_index]
     if not isinstance(files, list):
@@ -256,8 +261,8 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
                     y0=x0,
                     method=method,
                     vectorized=True,
-                    rtol=1e-3,
-                    atol=1e-3)
+                    rtol=1e-2,
+                    atol=1e-2)
     # resulting (predicted) open-loop trajectory in reduced coordinates
     xTraj = sol.y
     yTraj = Vauton(xTraj)
@@ -288,7 +293,7 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, set
         SSM_model['params']['obs_dim'] = 3 * (1 + settings['n_delay'])
         SSM_model['params']['output_dim'] = settings['oDOF']
     elif settings['observables'] == "pos-vel":
-        SSM_model['model']['V'] = None
+        SSM_model['model']['V'] = Vde
         SSM_model['model']['v_coeff'] = IMInfo['chart']['H']
         SSM_model['params']['delay_embedding'] = False
         SSM_model['params']['delays'] = 0
@@ -301,36 +306,37 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, set
     with open(join(model_save_dir, 'test_results.yaml'), 'w') as f:
         yaml.dump(test_results, f)
 
-def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target=True):
+def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, ROMOrder=3, SSMDim=6, know_target=True):
     dt = 0.01
     N = len(t)-1
-    x = np.full((6, N+1), np.nan)
-    y_pred = np.full((15, N+1), np.nan)
+    x = np.full((SSMDim, N+1), np.nan)
+    y_pred = np.full((len(y0), N+1), np.nan)
     y_pred[:, 0] = y0
-    y_bar = np.full((15, N+1), np.nan)
-    u_bar = np.full((8, N+1), np.nan)
-    xdot = np.full((6, N+1), np.nan)
-    weights = np.full((9, N+1), np.nan)
+    y_bar = np.full((len(y0), N+1), np.nan)
+    u_bar = np.full((u.shape[0], N+1), np.nan)
+    xdot = np.full((SSMDim, N+1), np.nan)
+    weights = np.full((1, N+1), np.nan)
 
     transform = interpolator.transform  # timed_transform
 
     for i in range(N):
         # compute the weights used at this timestep
         try:
-            xy = y0[:2] # y_target[:2, i]
+            xy = y0[:3] # y_target[:2, i]
             # simplex = tri.find_simplex(y[-3:-1, i])
             # b = tri.transform[simplex, :2] @ (y[-3:-1, i] - tri.transform[simplex, 2])
             # c = np.r_[b, 1 - b.sum()]
             # point_idx = tri.simplices[simplex]
             # weights[point_idx, i] = c
             # compute and integrate the dynamics at this timestep
-            y_bar[:, i] = np.tile(transform(xy, 'q_bar'), 1 + 4) # y_target[:, i] # 
+            y_bar[:, i] = np.tile(transform(xy, 'q_bar'), 1 + 4) # np.concatenate([transform(xy, 'q_bar'), np.zeros(3)]) # y0 # y_target[:, i] #
             u_bar[:, i] = transform(xy, 'u_bar')
             # x[i] = V[i]^T @ (y[i] - y_bar[i])
             if i == 0:
-                x[:, i] = transform(xy, 'V').T @ (y0 - y_bar[:, i]) # y[:, i]) #
+                # print(transform(xy, 'v_coeff').shape)
+                x[:, i] = transform(xy, 'V').T @ (y0 - y_bar[:, i]) # (transform(xy, 'v_coeff') @ phi((y0 - y_bar[:, i]).reshape(-1, 1), 3)).flatten() # y[:, i]) # 
             # xdot[i] = R(x[i]) + B[i] @ (u[i] - u_bar[i])
-            xdot[:, i] = (transform(xy, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), 3)).flatten() + transform(xy, 'B_r') @ (u[:, i] - u_bar[:, i]) # -0.5 * np.eye(6) @ x[:, i] # -0.001 * np.ones(6) # 
+            xdot[:, i] = (transform(xy, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), ROMOrder)).flatten() + transform(xy, 'B_r') @ (u[:, i] - u_bar[:, i]) # -0.5 * np.eye(6) @ x[:, i] # -0.001 * np.ones(6) # 
             # forward Euler: x[i+1] = x[i] + dt * xdot[i]
             x[:, i+1] = x[:, i] + dt * xdot[:, i]
             # y[i+1] = W(x[i+1]) + y_bar[i]
@@ -351,7 +357,7 @@ def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target
             # print("y[i+1]:", y_target[:, i+1])
             # print("x[i+1]:", x[:, i+1])
             # print("=======================================")
-            # raise(e)
-            break
-            # raise e
+            # print(e)
+            # break
+            raise e
     return t, x, y_pred, xdot, y_bar, u_bar, weights

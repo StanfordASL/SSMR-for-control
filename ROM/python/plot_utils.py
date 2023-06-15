@@ -241,14 +241,15 @@ def prediction_accuracy_map(q_samples, rmse_samples, vmax=None, colorbar=True, c
         fig, ax = plt.subplots(1, 1, figsize=(9, 9))
     cmap = mpl.colors.LinearSegmentedColormap.from_list('rg',["forestgreen", "gold", "firebrick"], N=256) 
     # cmap = mpl.cm.RdYlGn_r
-    sc = ax.scatter(q_samples[:, 0], q_samples[:, 1], s=30, c=rmse_samples, cmap=cmap, vmax=vmax, alpha=0.8)
+    if not np.all(np.isnan(rmse_samples)):
+        sc = ax.scatter(q_samples[:, 0], q_samples[:, 1], s=30, c=rmse_samples, cmap=cmap, vmax=vmax, alpha=0.8)
     nan_idx = np.isnan(rmse_samples)
     ax.scatter(q_samples[nan_idx, 0], q_samples[nan_idx, 1], s=30, c="grey", alpha=0.8)
     ax.set_xlabel(r"$x$ [mm]")
     ax.set_ylabel(r"$y$ [mm]")
     ax.set_aspect('equal','box')
-    if colorbar:
-        plt.colorbar(sc, aspect=20, ax=cax, fraction=1, pad=0.02, shrink=0.9, label="RSME [mm]")
+    if colorbar and not np.all(np.isnan(rmse_samples)):
+        plt.colorbar(sc, aspect=20, ax=cax, fraction=1, pad=0.02, shrink=0.9, label="RMSE [mm]")
     if show:
         plt.show()
     else:
