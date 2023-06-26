@@ -164,9 +164,13 @@ def mode_direction(modeDir, modeFreq, show=True):
 
 
 def inputs(t, u, ax=None, show=True):
+    # Align dimensionality of axes
+    if t.shape[0] != u.shape[0]:
+        u = u.T
+
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(9, 4))
-    ax.plot(t, u[:, :].T, lw=TRAJ_LINEWIDTH)
+    ax.plot(t, u[:, :], lw=TRAJ_LINEWIDTH)
     ax.set_ylabel(r"$u$")
     ax.set_xlabel(r"$t$")
     ax.set_xmargin(0)
