@@ -11,6 +11,7 @@ from scipy.sparse.linalg import svds
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 import yaml
+from scipy.io import loadmat
 
 # from sympy.polys.monomials import itermonomials
 # from sympy.polys.orderings import monomial_key
@@ -128,8 +129,10 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     delayedData = np.vstack(buf[::-1])
     return delayedData
 
-
-def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, t_in=0, t_out=None, return_inputs=False, return_velocity=False, traj_index=np.s_[:]):
+# TODO: We should generalize this to more than just the tip
+def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, 
+                    t_in=0, t_out=None, return_inputs=False, return_velocity=False, 
+                    traj_index=np.s_[:], file_type='pkl', subsample=1, shift=False):
     if q_rest is not None:
         q_rest = np.array(q_rest)
     elif rest_file is not None:
@@ -141,44 +144,95 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, t_i
                 q_rest = rest_file['rest']
     else:
         raise ValueError('No rest file or rest position provided')
-    files = sorted([f for f in listdir(data_dir) if 'snapshots.pkl' in f])
+
+    if file_type == 'pkl':
+        files = sorted([f for f in listdir(data_dir) if 'snapshots.pkl' in f])
+    elif file_type == 'mat':
+        files = sorted([f for f in listdir(data_dir) if 'snapshots.mat' in f])
+    else:
+        raise ValueError(f"Unsupported file type: {file_type}")
+
     files = files[traj_index]
     if not isinstance(files, list):
         files = [files]
     out_data = []
     u = []
     for i, traj in enumerate(files):
-        # if i % 3 != 0:
-        #     continue
-        with open(join(data_dir, traj), 'rb') as file:
-            data = pickle.load(file)
-        t = np.array(data['t'])
+        # Setup output nodes
         if output_node == 'all':
             node_slice = np.s_[:]
         else:
             node_slice = np.s_[3*output_node:3*output_node+3]
-        if len(data['q']) > 0:
-            q_node = (np.array(data['q'])[:, node_slice] - q_rest[node_slice]).T
-        elif len(data['z']) > 0:
-            q_node = (np.array(data['z'])[:, 3:] - q_rest[node_slice]).T
-        else:
-            raise RuntimeError("Cannot find data for desired node")
-        # remove time until t_in
-        ind = (t_in <= t)
-        if t_out is not None:
-            ind = ind & (t <= t_out)
-        t = t[ind] - t_in
-        q_node = q_node[:, ind]
-        if return_velocity:
-            v_node = np.array(data['v'])[ind, node_slice].T
-            data_traj = np.vstack((q_node, v_node))
-        else:
-            data_traj = q_node
-        out_data.append([t, data_traj])
-        u.append(np.array(data['u'])[ind, :].T)
+        
+        with open(join(data_dir, traj), 'rb') as file:
+            # Assumes files are NOT centered
+            if file_type == 'pkl':
+                data = pickle.load(file)
+                t = np.array(data['t'])
+                ind = (t_in <= t)
+                if t_out is not None:
+                    ind = ind & (t <= t_out)
+                t = t[ind] - t_in
+                t = t[::subsample]
+
+                q_node = ()
+                if len(data['q']) > 0:
+                    q_node = (np.array(data['q'])[:, node_slice] - q_rest[node_slice]).T
+                elif len(data['z']) > 0:
+                    q_node = (np.array(data['z'])[:, 3:] - q_rest[node_slice]).T
+                else:
+                    raise RuntimeError("Cannot find data for desired node")
+                
+                # Truncate to specific times
+                q_node_trunc = q_node[:, ind]
+                # then subsample
+                q_node = q_node_trunc[:, ::subsample]
+                if return_velocity:
+                    v_node = np.array(data['v'])[ind, node_slice].T
+                    v_node = v_node[:, ::subsample]
+                    data_traj = np.vstack((q_node, v_node))
+                else:
+                    data_traj = q_node
+                out_data.append([t, data_traj])
+                uTrunc = np.array(data['u'])[ind, :].T
+                u.append(uTrunc[:, ::subsample])
+            
+            # Mat files only expect observables and not full nodes
+            # oData contains all of the decay for each initial condition
+            # Assumes we only load one file
+            # Assumes files ARE centered. If uncentered, set shift = True
+            elif file_type == 'mat':
+                data = loadmat(file)
+
+                # Extract decay trajectories from the various initial conditions
+                for i in range(data['oData'].shape[0]):
+                    t = data['oData'][i][0][0] #[traj idx][time (0) or traj (1)][single array (0)]
+                    ind = (t_in <= t)
+                    if t_out is not None:
+                        ind = ind & (t <= t_out)
+                    t = t[ind] - t_in
+                    t = t[::subsample]
+
+                    # Assume the format (pos, vel)
+                    if return_velocity:
+                        if shift:
+                            data_traj_trunc = data['oData'][i][1][:, ind] - np.hstack((q_rest[node_slice], np.zeros(3))).reshape((6,1))
+                        else:
+                            data_traj_trunc = data['oData'][i][1][:, ind]
+                    else:
+                        if shift:
+                            data_traj_trunc = data['oData'][i][1][0:3, ind] - q_rest[node_slice].reshape((3,1))
+                        else:
+                            data_traj_trunc = data['oData'][i][1][0:3, ind]
+
+                    data_traj = data_traj_trunc[:, ::subsample]
+                    out_data.append([t, data_traj])
+                    
+                    if return_inputs:
+                        uTrunc = np.array(data['u'])[ind, :].T
+                        u.append(uTrunc[:, ::subsample])
 
     if len(out_data) == 1:
-        # print("Only one trajectory found in folder")
         out_data, u = out_data[0], u[0]
     if return_inputs:
         return out_data, u
@@ -273,6 +327,20 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
         zTraj = np.hstack((zTraj, np.tile(np.nan, (3, len(t) - zTraj.shape[1]))))
     return zTraj
 
+def multivariate_polynomial(x, order: int):
+    # poly = PolynomialFeatures(degree=SSMOrder, include_bias=False).fit(x.T)
+    # # print(poly.get_feature_names_out(['a', 'b', 'c', 'd', 'e', 'f']))
+    # features = poly.transform(x.T)
+    if not isinstance(order, int):
+        order = int(order)
+    return PolynomialFeatures(degree=order, include_bias=False).fit_transform(x.T).T
+
+def Rauton(RDInfo):
+    W_r = np.array(RDInfo['reducedDynamics']['coefficients'])
+    polynomialOrder = RDInfo['reducedDynamics']['polynomialOrder']
+    phi = lambda x: multivariate_polynomial(x, polynomialOrder)
+    Rauton = lambda y: W_r @ phi(y) # / 10
+    return Rauton
 
 def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, settings, test_results):
     SSM_model = {'model': {}, 'params': {}}
