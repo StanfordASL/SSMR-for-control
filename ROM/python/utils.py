@@ -7,7 +7,7 @@ import pickle
 from os.path import join
 from os import listdir
 from scipy.sparse.linalg import svds
-import matlab.engine
+# import matlab.engine
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 import yaml
@@ -122,10 +122,10 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     undelayed = undelayedData[embed_coords, :]
     buf = [undelayed]
     for delta in list(range(1, up_to_delay+1)):
-        delayed_by_delta = np.roll(undelayed, -delta)
-        delayed_by_delta[:, -delta:] = 0
+        delayed_by_delta = np.roll(undelayed, delta)
+        delayed_by_delta[:, :delta] = np.tile(undelayed[:, 0], (delta, 1)).T
         buf.append(delayed_by_delta)
-    delayedData = np.vstack(buf)
+    delayedData = np.vstack(buf[::-1])
     return delayedData
 
 
@@ -176,6 +176,7 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, t_i
             data_traj = q_node
         out_data.append([t, data_traj])
         u.append(np.array(data['u'])[ind, :].T)
+
     if len(out_data) == 1:
         # print("Only one trajectory found in folder")
         out_data, u = out_data[0], u[0]
@@ -306,7 +307,7 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, set
     with open(join(model_save_dir, 'test_results.yaml'), 'w') as f:
         yaml.dump(test_results, f)
 
-def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, ROMOrder=3, SSMDim=6, know_target=True):
+def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target, ROMOrder=3, SSMDim=6, interpolate_3d=True):
     dt = 0.01
     N = len(t)-1
     x = np.full((SSMDim, N+1), np.nan)
@@ -322,42 +323,42 @@ def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, ROMOrder=3,
     for i in range(N):
         # compute the weights used at this timestep
         try:
-            xy = y0[:3] # y_target[:2, i]
-            # simplex = tri.find_simplex(y[-3:-1, i])
-            # b = tri.transform[simplex, :2] @ (y[-3:-1, i] - tri.transform[simplex, 2])
-            # c = np.r_[b, 1 - b.sum()]
-            # point_idx = tri.simplices[simplex]
-            # weights[point_idx, i] = c
+            if know_target:
+                interpolant = y_pred
+            else:
+                interpolant = np.tile(y0, (N, 1)).T # y_pred #
+            if interpolate_3d:
+                xyz = interpolant[-3:, i]
+            else:
+                xyz = interpolant[-3:-1, i]
+            # xyz = cart2sph(*xyz)
             # compute and integrate the dynamics at this timestep
-            y_bar[:, i] = np.tile(transform(xy, 'q_bar'), 1 + 4) # np.concatenate([transform(xy, 'q_bar'), np.zeros(3)]) # y0 # y_target[:, i] #
-            u_bar[:, i] = transform(xy, 'u_bar')
+            y_bar[:, i] = np.tile(transform(xyz, 'q_bar'), 1 + 4) # np.concatenate([transform(xy, 'q_bar'), np.zeros(3)]) # y0 # 
+            u_bar[:, i] = transform(xyz, 'u_bar')
             # x[i] = V[i]^T @ (y[i] - y_bar[i])
-            if i == 0:
-                # print(transform(xy, 'v_coeff').shape)
-                x[:, i] = transform(xy, 'V').T @ (y0 - y_bar[:, i]) # (transform(xy, 'v_coeff') @ phi((y0 - y_bar[:, i]).reshape(-1, 1), 3)).flatten() # y[:, i]) # 
+            if i == 0 or know_target:
+                x[:, i] = transform(xyz, 'V').T @ (y_pred[:, i] - y_bar[:, i]) # (transform(xy, 'v_coeff') @ phi((y0 - y_bar[:, i]).reshape(-1, 1), 3)).flatten() # y[:, i]) # 
             # xdot[i] = R(x[i]) + B[i] @ (u[i] - u_bar[i])
-            xdot[:, i] = (transform(xy, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), ROMOrder)).flatten() + transform(xy, 'B_r') @ (u[:, i] - u_bar[:, i]) # -0.5 * np.eye(6) @ x[:, i] # -0.001 * np.ones(6) # 
+            xdot[:, i] = (transform(xyz, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), ROMOrder)).flatten() + transform(xyz, 'B_r') @ (u[:, i] - u_bar[:, i])
             # forward Euler: x[i+1] = x[i] + dt * xdot[i]
             x[:, i+1] = x[:, i] + dt * xdot[:, i]
             # y[i+1] = W(x[i+1]) + y_bar[i]
-            y_pred[:, i+1] = (transform(xy, 'w_coeff') @ phi(x[:, i+1].reshape(-1, 1), 3)).T + y_bar[:, i]
-            if not know_target:
-                y_target[:, i+1] = y_pred[:, i+1]
+            y_pred[:, i+1] = (transform(xyz, 'w_coeff') @ phi(x[:, i+1].reshape(-1, 1), 3)).T + y_bar[:, i]
         except Exception as e:
-            # print("i =", i)
-            # print("y_pred[i-1]:", y_pred[:, i-1])
-            # print("y[i-1]:", y_target[:, i-1])
-            # print("x[i-1]:", x[:, i-1])
-            # print("=======================================")
-            # print("y_pred[i]:", y_pred[:, i])
-            # print("y[i]:", y_target[:, i])
-            # print("x[i]:", x[:, i])
-            # print("=======================================")
-            # print("y_pred[i+1]:", y_pred[:, i+1])
-            # print("y[i+1]:", y_target[:, i+1])
-            # print("x[i+1]:", x[:, i+1])
-            # print("=======================================")
-            # print(e)
-            # break
-            raise e
+            break
+            # raise e
     return t, x, y_pred, xdot, y_bar, u_bar, weights
+
+
+def cart2sph(x, y, z=None):
+    if z is None:
+        return [x, y]
+    z_shift = z - 195
+    hxy = np.hypot(x, y)
+    r = np.hypot(hxy, z_shift)
+    el = np.arctan2(z_shift, hxy)
+    az = np.arctan2(y, x)
+    sph = [x, y, z]
+    # sph = [az, el, r]
+    # print(sph)
+    return sph
