@@ -10,22 +10,21 @@ import yaml
 import pickle
 from tqdm.auto import tqdm
 
-
 np.set_printoptions(linewidth=300)
 
 
 SETTINGS = {
-    'observables': "pos-vel", # "pos-vel", # "delay-embedding"
+    'observables': "delay-embedding", # "delay-embedding", # "pos-vel", #
     'reduced_coordinates': "local", # "global" # "local"
-    'use_ssmlearn': "matlab", # "matlab", "py"
 
-    'robot_dir': "/home/jalora/soft-robot-control/examples/hardware",
-    'tip_node': 1354,
-    'n_nodes': 1628,
-    'input_dim': 4,
+    'use_ssmlearn': "py", # "matlab", "py"
+
+    'robot_dir': "/home/jalora/soft-robot-control/examples/trunk",
+    'tip_node': 51,
+    'n_nodes': 709,
+    'input_dim': 8,
     
     'dt': 0.01,
-    'subsample': 1,
 
     'rDOF': 3,
     'oDOF': 3,
@@ -35,27 +34,39 @@ SETTINGS = {
     'ROMOrder': 3,
     'RDType': "flow",
     'ridge_alpha': {
-        'manifold': 0., # 1.,
-        'reduced_dynamics': 0., # 100.,
-        'B': 1000. # 1.
+        'manifold': 1., # 1.,
+        'reduced_dynamics': 100., # 100.,
+        'B': 1. # 1.
     },
-    'custom_delay': None, # Specify a custom delay embedding for the SSM
+    'custom_delay': False, # Specify a custom delay embedding for the SSM (False or Integer)
 
-    # 'data_dir': "/home/jalora/Desktop/diamond",
-    'data_dir': "/home/jalora/Desktop/diamond_origin",
-    'data_subdirs': False,
+
+    # 'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 33_handcrafted/",
+    'data_dir': "/home/jalora/Desktop/trunk_origin",
+    # 'data_subdirs': [
+    #     "origin",
+    #     "north",
+    #     "west",
+    #     "south",
+    #     "east",
+    #     "northwest",
+    #     "southwest",
+    #     "southeast",
+    #     "northeast"
+    # ],
     'decay_dir': "decay/",
     'rest_file': "rest_qv.pkl",
-    'model_save_dir': "SSMmodelsPy/",
+    'model_save_dir': "SSMmodels/",
 
     't_decay': [1, 4],
-    't_truncate': [0.08, 2.6],
+    't_truncate': [0.0, 3],
 
+    # 'decay_test_set': [0, 8, 16, 24],
     'decay_test_set': [0, 4],
 
     'poly_u_order': 1,
     'input_train_data_dir': "open-loop",
-    'input_test_data_dir': ["open-loop_circle", ],
+    'input_test_data_dir': [],
     'input_train_ratio': 0.8
 }
 SETTINGS['data_subdirs'] = sorted([dir for dir in listdir(SETTINGS['data_dir']) if isdir(join(SETTINGS['data_dir'], dir)) and
@@ -99,14 +110,8 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     # ====== Import decay trajectories -- oData ====== #
     print("====== Import decay trajectories ======")    
     Data = {}
-    # For /home/jjalora/Desktop/Diamond
-    # Data['oData'] = utils.import_pos_data(decay_data_dir, 
-    #                                       q_rest=q_eq, 
-    #                                       output_node='all', 
-    #                                       file_type='mat', 
-    #                                       subsample=10, return_velocity=False)
 
-    # For /home/jjalora/Desktop/Diamond_origin
+    # For /home/jjalora/Desktop/trunk_origin
     Data['oData'] = utils.import_pos_data(decay_data_dir,
                                         rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                         q_rest=q_eq,
@@ -173,18 +178,8 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
             Wauton = lambda y: Vde.T @ y
     else:
         raise RuntimeError("Unknown type of observables, should be ['delay-embedding', 'pos-vel']")
-    # TODO: EDIT THIS!! for delay-embedding, we should not return velocity?
-    # training data
-    # For /home/jjalora/Desktop/Diamond/
-    # (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
-    #                                 rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
-    #                                 q_rest = q_eq,
-    #                                 output_node=SETTINGS['tip_node'], 
-    #                                 return_inputs=True, 
-    #                                 file_type='mat',
-    #                                 shift=True, return_velocity=False)
 
-    # For /home/jjalora/Desktop/Diamond_origin/
+    # For /home/jjalora/Desktop/trunk_origin/
     (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
                                     rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                     q_rest = q_eq,
@@ -229,7 +224,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
 
 
 if __name__ == "__main__":
-    if not SETTINGS['data_subdirs'] or SETTINGS['data_subdirs'] is None:
+    if SETTINGS['data_subdirs'] is None:
         data_dir = SETTINGS['data_dir']
         generate_ssmr_model(data_dir, save_model_to_data_dir=False)
     else:

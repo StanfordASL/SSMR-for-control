@@ -19,7 +19,7 @@ SETTINGS = {
 
     'use_ssmlearn': "py", # "matlab", "py"
 
-    'robot_dir': "/home/jonas/Projects/stanford/soft-robot-control/examples/trunk",
+    'robot_dir': "/home/jalora/soft-robot-control/examples/trunk",
     'tip_node': 51,
     'n_nodes': 709,
     'input_dim': 8,
@@ -34,12 +34,15 @@ SETTINGS = {
     'ROMOrder': 3,
     'RDType': "flow",
     'ridge_alpha': {
-        'manifold': 0., # 1.,
-        'reduced_dynamics': 0., # 100.,
-        'B': 0. # 1.
+        'manifold': 1., # 1.,
+        'reduced_dynamics': 50., # 100.,
+        'B': 1. # 1.
     },
+    'custom_delay': False, # Specify a custom delay embedding for the SSM (False or Integer)
 
-    'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 33_handcrafted/",
+
+    # 'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 33_handcrafted/",
+    'data_dir': "/home/jalora/Desktop/trunk_origin",
     # 'data_subdirs': [
     #     "origin",
     #     "north",
@@ -56,13 +59,14 @@ SETTINGS = {
     'model_save_dir': "SSMmodels/",
 
     't_decay': [1, 4],
-    't_truncate': [0.1, 3],
+    't_truncate': [0.0, 3],
 
-    'decay_test_set': [0, 8, 16, 24],
+    # 'decay_test_set': [0, 8, 16, 24],
+    'decay_test_set': [0, 4],
 
     'poly_u_order': 1,
     'input_train_data_dir': "open-loop",
-    'input_test_data_dir': ["open-loop_circle", ],
+    'input_test_data_dir': [],
     'input_train_ratio': 0.8
 }
 SETTINGS['data_subdirs'] = sorted([dir for dir in listdir(SETTINGS['data_dir']) if isdir(join(SETTINGS['data_dir'], dir)) and
