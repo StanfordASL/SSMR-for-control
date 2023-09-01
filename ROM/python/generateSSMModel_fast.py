@@ -15,7 +15,7 @@ np.set_printoptions(linewidth=300)
 
 SETTINGS = {
     'observables': "delay-embedding", # "delay-embedding", # "pos-vel", #
-    'reduced_coordinates': "local", # "global" # "local"
+    'reduced_coordinates': "global", # "global" # "local"
 
     'use_ssmlearn': "py", # "matlab", "py"
 
@@ -39,7 +39,7 @@ SETTINGS = {
         'B': 0. # 1.
     },
 
-    'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 33_handcrafted/",
+    'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 9", # 147", # 33_handcrafted/",
     # 'data_subdirs': [
     #     "origin",
     #     "north",
@@ -67,7 +67,7 @@ SETTINGS = {
 }
 SETTINGS['data_subdirs'] = sorted([dir for dir in listdir(SETTINGS['data_dir']) if isdir(join(SETTINGS['data_dir'], dir)) and
                                    'decay' in listdir(join(SETTINGS['data_dir'], dir)) and
-                                   'open-loop' in listdir(join(SETTINGS['data_dir'], dir))])
+                                   'open-loop' in listdir(join(SETTINGS['data_dir'], dir))])[:]
 print(SETTINGS['data_subdirs'])
 
 PLOTS = 'save' # 'save', 'show', False ('show' shows and saves plots, 'save' only saves plots, False does nothing)
@@ -108,7 +108,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
             model_save_dir = join(model_dir, f"model_{int(models[-1].split('_')[-1])+1:02}")
     else:
         # save model to a new dir called SSMmodel_{observable} inside the data_dir
-        model_save_dir = join(data_dir, f"SSMmodel_{SETTINGS['observables']}_ROMOrder={SETTINGS['ROMOrder']}_{SETTINGS['reduced_coordinates']}V")
+        model_save_dir = join(data_dir, f"SSMmodel_{SETTINGS['observables']}_{SETTINGS['reduced_coordinates']}V")
     if not exists(model_save_dir):
         mkdir(model_save_dir)
     if PLOTS and not exists(join(model_save_dir, "plots")):
@@ -448,7 +448,7 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
             })
     for traj in test_trajectories:
         try:
-            z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0], method="LSODA")
+            z_pred = utils.predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0], method="RK45")
         except Exception as e:
             z_pred = np.nan * np.ones_like(traj['z'])
         rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :] - traj['z'][:3])**2, axis=0))) / len(traj['t']))

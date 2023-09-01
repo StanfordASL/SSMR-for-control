@@ -20,7 +20,7 @@ suptitlesize = 20*FONTSCALE
 plt.rc('figure', autolayout=True)
 # plt.rc('axes', xmargin=0)
 
-# PADDING = {
+# PADDING = {4
 #     'w_pad': 1.0,
 #     'h_pad': 1.0
 # }
@@ -65,12 +65,12 @@ def traj_3D_xyz(x, y, z, ax=None, color='tab:blue', show=True):
         return ax
     
 
-def traj_2D_xy(x, y, ax=None, color="tab:blue", ls="-", show=True, label=""):
+def traj_2D_xy(x, y, ax=None, color="tab:blue", alpha=1, ls="-", lw=TRAJ_LINEWIDTH, marker=None, markersize=None, show=True, label=""):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(9, 8))
-    ax.plot(x, y, color=color, ls=ls, lw=TRAJ_LINEWIDTH, label=label)
-    ax.set_xlabel(r'$x$')
-    ax.set_ylabel(r'$y$')
+    ax.plot(x, y, color=color, ls=ls, lw=lw, alpha=alpha, marker=marker, markersize=markersize, markevery=50, label=label)
+    ax.set_xlabel(r'$x_{ee}$ [mm]')
+    ax.set_ylabel(r'$y_{ee}$ [mm]')
     ax.set_aspect('equal', 'box')
     if show:
         plt.show()
@@ -99,14 +99,14 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
                     color='tab:green', ls=ls, lw=TRAJ_LINEWIDTH*1.2)
         ax.set_ylabel(xyz_names[coord])
         ax.set_xmargin(0)
-    axs[-1].set_xlabel(r"$t$")    
+    axs[-1].set_xlabel(r"$t$ [s]")    
     if show:
         plt.show()
     else:
         return axs
     
 
-def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, ls="-", show=True, label="", rotate_yticks=False):
+def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, ls="-", lw=TRAJ_LINEWIDTH, marker=None, markersize=None, show=True, label="", rotate_yticks=False):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
     if xyz_names is None:
@@ -119,10 +119,10 @@ def traj_xyz_txyz(t, x, y, z, axs=None, xyz_names=None, color=None, ls="-", show
         ax = axs[i]
         ax.plot(t,
                 coord,
-                color=color, ls=ls, lw=TRAJ_LINEWIDTH, label=label)
+                color=color, ls=ls, lw=lw, marker=marker, markersize=markersize, markevery=50, label=label)
         ax.set_ylabel(xyz_names[i], rotation=y_tick_rotation, ha="right")
         ax.set_xmargin(0)
-    axs[-1].set_xlabel(r"$t$")
+    axs[-1].set_xlabel(r"$t$ [s]")
     if show:
         plt.show()
     else:
@@ -172,7 +172,7 @@ def inputs(t, u, ax=None, show=True):
         fig, ax = plt.subplots(1, 1, figsize=(9, 4))
     ax.plot(t, u[:, :], lw=TRAJ_LINEWIDTH)
     ax.set_ylabel(r"$u$")
-    ax.set_xlabel(r"$t$")
+    ax.set_xlabel(r"$t$ [s]")
     ax.set_xmargin(0)
     ax.legend([rf"$u_{i}$" for i in range(1, u.shape[1]+1)])
     if show:
@@ -200,7 +200,7 @@ def reduced_coordinates_gradient(t, gradients, labels=None, how="norm", ax=None,
         for j in range(y.shape[1]):
             ax.plot(t, y[:, j], lw=TRAJ_LINEWIDTH, color=colors[j], label=labels[i])
     ax.set_ylabel(r"$\dot{x}$")
-    ax.set_xlabel(r"$t$")
+    ax.set_xlabel(r"$t$ [s]")
     ax.set_xmargin(0)
     h, l = ax.get_legend_handles_labels()
     by_label = dict(zip(l, h))
@@ -240,20 +240,21 @@ def adiabatic_model_weights(t, weights, model_names):
     plt.show()
 
 
-def prediction_accuracy_map(q_samples, rmse_samples, vmax=None, colorbar=True, cax=None, ax=None, show=True):
+def prediction_accuracy_map(q_samples, rmse_samples, vmin=None, vmax=None, colorbar=True, ylabel="", cax=None, ax=None, show=True):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(9, 9))
     cmap = mpl.colors.LinearSegmentedColormap.from_list('rg',["forestgreen", "gold", "firebrick"], N=256) 
     # cmap = mpl.cm.RdYlGn_r
     if not np.all(np.isnan(rmse_samples)):
-        sc = ax.scatter(q_samples[:, 0], q_samples[:, 1], s=30, c=rmse_samples, cmap=cmap, vmax=vmax, alpha=0.8)
+        sc = ax.scatter(q_samples[:, 0], q_samples[:, 1], s=30, c=rmse_samples, cmap=cmap, vmin=vmin, vmax=vmax, alpha=0.8)
     nan_idx = np.isnan(rmse_samples)
     ax.scatter(q_samples[nan_idx, 0], q_samples[nan_idx, 1], s=30, c="grey", alpha=0.8)
+    if ylabel:
+        ax.set_ylabel(ylabel)
     ax.set_xlabel(r"$x$ [mm]")
-    ax.set_ylabel(r"$y$ [mm]")
     ax.set_aspect('equal','box')
     if colorbar and not np.all(np.isnan(rmse_samples)):
-        plt.colorbar(sc, aspect=20, ax=cax, fraction=1, pad=0.02, shrink=0.9, label="RMSE [mm]")
+        plt.colorbar(sc, aspect=20, ax=cax, fraction=1, pad=0.02, shrink=1., label="RMSE [mm]")
     if show:
         plt.show()
     else:
@@ -274,3 +275,32 @@ def boxplot(samples, vmax=None, xlabel="", ax=None, show=True):
         plt.show()
     else:
         return ax
+    
+
+def predicted_trajectories(rmse_samples, z_tot, z_preds, z_trues, title="", n_good=10, n_bad=10, save_path="", show=True):
+    sorted_idx = np.argsort(rmse_samples)
+    good_pred_idx = sorted_idx[:n_good]
+    bad_pred_idx = sorted_idx[-n_bad:]
+    fig, ax = plt.subplots(1, 1, figsize=(9, 8))
+    # plot the open-loop trajectory in blue
+    ax.plot(z_tot[0, :], z_tot[1, :], '-', color="#c4c4c4")
+    # plot each predictions in orange
+    for i in good_pred_idx:
+        ax.plot(z_trues[i][0, :], z_trues[i][1, :], '--^', color="tab:purple", alpha=1)
+        ax.plot(z_preds[i][0, :], z_preds[i][1, :], ':o', color="tab:blue", alpha=1)
+        # ax.plot(z_preds[i][0, 0], z_preds[i][1, 0], '*', color="darkblue", alpha=1)
+    for i in bad_pred_idx:
+        ax.plot(z_trues[i][0, :], z_trues[i][1, :], '--^', color="tab:purple", alpha=1)
+        ax.plot(z_preds[i][0, :], z_preds[i][1, :], ':o', color="tab:orange", alpha=1)
+        # ax.plot(z_preds[i][0, 0], z_preds[i][1, 0], '*', color="firebrick", alpha=1)
+    ax.set_xlabel(r"$x$ [mm]")
+    ax.set_ylabel(r"$y$ [mm]")
+    ax.set_aspect("equal")
+    ax.set_xlim(-75, 75)
+    ax.set_ylim(-75, 75)
+    if title is not None:
+        fig.suptitle(title)
+    if show:
+        fig.show()
+    if save_path:
+        fig.savefig(f"{save_path}.svg", dpi=300, bbox_inches="tight")

@@ -146,7 +146,7 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None,
         raise ValueError('No rest file or rest position provided')
 
     if file_type == 'pkl':
-        files = sorted([f for f in listdir(data_dir) if 'snapshots.pkl' in f])
+        files = sorted([f for f in listdir(data_dir) if 'snapshots.pkl' in f or 'sim.pkl' in f])
     elif file_type == 'mat':
         files = sorted([f for f in listdir(data_dir) if 'snapshots.mat' in f])
     else:
@@ -231,7 +231,6 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None,
                     if return_inputs:
                         uTrunc = np.array(data['u'])[ind, :].T
                         u.append(uTrunc[:, ::subsample])
-
     if len(out_data) == 1:
         out_data, u = out_data[0], u[0]
     if return_inputs:
@@ -321,7 +320,7 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
     # resulting (predicted) open-loop trajectory in reduced coordinates
     xTraj = sol.y
     yTraj = Vauton(xTraj)
-    zTraj = yTraj[:3, :]
+    zTraj = yTraj[-3:, :]
     # if integration unsuccessful, fill up solution with nans
     if zTraj.shape[1] < len(t):
         zTraj = np.hstack((zTraj, np.tile(np.nan, (3, len(t) - zTraj.shape[1]))))
@@ -375,58 +374,76 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, set
     with open(join(model_save_dir, 'test_results.yaml'), 'w') as f:
         yaml.dump(test_results, f)
 
-def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target, ROMOrder=3, SSMDim=6, interpolate_3d=True):
+def advect_adiabaticRD_with_inputs(t, y0, u, y_target, interpolator, know_target, ROMOrder=3, SSMDim=6, interpolate="xyz", interp_slice=None):
+    transform = interpolator.transform  # timed_transform
+    if interp_slice is None:
+        if interpolate == "xyz":
+            interp_slice = np.s_[:3]
+        elif interpolate == "xy":
+            interp_slice = np.s_[:2]
+        elif interpolate == "reduced_coords":
+            interp_slice = np.s_[:SSMDim]
     dt = 0.01
+    interpolant_len = len(np.zeros(10)[interp_slice])
     N = len(t)-1
-    x = np.full((SSMDim, N+1), np.nan)
     y_pred = np.full((len(y0), N+1), np.nan)
     y_pred[:, 0] = y0
+    x = np.full((SSMDim, N+1), np.nan)
+    # x[0] = V_0^T @ (y[0] - y_bar[0])
+    x[:, 0] = interpolator.transform(np.zeros(interpolant_len), "V").T @ y0
     y_bar = np.full((len(y0), N+1), np.nan)
+    x_bar = np.full((SSMDim, N+1), np.nan)
     u_bar = np.full((u.shape[0], N+1), np.nan)
     xdot = np.full((SSMDim, N+1), np.nan)
     weights = np.full((1, N+1), np.nan)
 
-    transform = interpolator.transform  # timed_transform
-
     for i in range(N):
         # compute the weights used at this timestep
         try:
-            if know_target:
-                interpolant = y_pred
+            if interpolate in ["xyz", "xy"]:
+                if know_target:
+                    psi = y_target[:, i]
+                else:
+                    psi = y0
+            elif interpolate == "reduced_coords":
+                if know_target:
+                    psi = interpolator.transform(np.zeros(interpolant_len), "V").T @ y_target[:, i]
+                else:
+                    psi = x[:, i]
             else:
-                interpolant = np.tile(y0, (N, 1)).T # y_pred #
-            if interpolate_3d:
-                xyz = interpolant[-3:, i]
-            else:
-                xyz = interpolant[-3:-1, i]
-            # xyz = cart2sph(*xyz)
+                raise ValueError("interpolate must be one of 'xyz', 'xy', or 'reduced_coords'")
+            psi = psi[interp_slice]
             # compute and integrate the dynamics at this timestep
-            y_bar[:, i] = np.tile(transform(xyz, 'q_bar'), 1 + 4) # np.concatenate([transform(xy, 'q_bar'), np.zeros(3)]) # y0 # 
-            u_bar[:, i] = transform(xyz, 'u_bar')
-            # x[i] = V[i]^T @ (y[i] - y_bar[i])
-            if i == 0 or know_target:
-                x[:, i] = transform(xyz, 'V').T @ (y_pred[:, i] - y_bar[:, i]) # (transform(xy, 'v_coeff') @ phi((y0 - y_bar[:, i]).reshape(-1, 1), 3)).flatten() # y[:, i]) # 
-            # xdot[i] = R(x[i]) + B[i] @ (u[i] - u_bar[i])
-            xdot[:, i] = (transform(xyz, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), ROMOrder)).flatten() + transform(xyz, 'B_r') @ (u[:, i] - u_bar[:, i])
-            # forward Euler: x[i+1] = x[i] + dt * xdot[i]
-            x[:, i+1] = x[:, i] + dt * xdot[:, i]
-            # y[i+1] = W(x[i+1]) + y_bar[i]
-            y_pred[:, i+1] = (transform(xyz, 'w_coeff') @ phi(x[:, i+1].reshape(-1, 1), 3)).T + y_bar[:, i]
+            u_bar[:, i] = transform(psi, 'u_bar')
+            if interpolate in ["xyz", "xy"]:
+                y_bar[:, i] = np.tile(transform(psi, 'q_bar'), 1 + 4)
+                # xdot[i] = R(x[i]) + B[i] @ (u[i] - u_bar[i])
+                xdot[:, i] = (transform(psi, 'r_coeff') @ phi(x[:, i].reshape(-1, 1), ROMOrder)).flatten() + transform(psi, 'B_r') @ (u[:, i] - u_bar[:, i])
+                # y[i+1] = W(x[i+1]) + y_bar[i]
+                # forward Euler: x[i+1] = x[i] + dt * xdot[i]
+                x[:, i+1] = x[:, i] + dt * xdot[:, i]
+                y_pred[:, i+1] = (transform(psi, 'w_coeff') @ phi(x[:, i+1].reshape(-1, 1), 3)).T + y_bar[:, i]
+            elif interpolate == "reduced_coords":
+                x_bar[:, i] = transform(psi, 'x_bar')
+                y_bar[:, i] = np.tile(transform(psi, 'q_bar'), 1 + 4)
+                # xdot[i] = R(x[i] - x_bar[i]) + B[i] @ (u[i] - u_bar[i])
+                xdot[:, i] = (transform(psi, 'r_coeff') @ phi((x[:, i] - x_bar[:, i]).reshape(-1, 1), ROMOrder)).flatten() + transform(psi, 'B_r') @ (u[:, i] - u_bar[:, i])
+                # forward Euler: x[i+1] = x[i] + dt * xdot[i]
+                x[:, i+1] = x[:, i] + dt * xdot[:, i]
+                # y[i+1] = W(x[i+1] - x_bar[i])
+                y_pred[:, i+1] = (transform(psi, 'w_coeff') @ phi((x[:, i+1] - x_bar[:, i]).reshape(-1, 1), ROMOrder)).T + y_bar[:, i]
+
         except Exception as e:
-            break
-            # raise e
-    return t, x, y_pred, xdot, y_bar, u_bar, weights
+            # break
+            raise e
+    return t, x, y_pred, xdot, y_bar if interpolate in ["xy", "xyz"] else x_bar, u_bar, weights
 
 
-def cart2sph(x, y, z=None):
-    if z is None:
-        return [x, y]
-    z_shift = z - 195
+def cart2sph(x, y, z):
+    # z_shift = z - 195
     hxy = np.hypot(x, y)
-    r = np.hypot(hxy, z_shift)
-    el = np.arctan2(z_shift, hxy)
+    r = np.hypot(hxy, z)
+    el = np.arctan2(z, hxy)
     az = np.arctan2(y, x)
-    sph = [x, y, z]
-    # sph = [az, el, r]
-    # print(sph)
+    sph = [az, el, r]
     return sph
