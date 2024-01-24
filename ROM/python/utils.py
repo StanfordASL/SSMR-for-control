@@ -14,22 +14,24 @@ from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 import yaml
 from scipy.io import loadmat
-import plot_utils as plot
+import ROM.python.plot_utils as plot
 import matplotlib.pyplot as plt
 
 # from sympy.polys.monomials import itermonomials
 # from sympy.polys.orderings import monomial_key
 # import sympy as sp
 
-
-def slice_trajectories(data, interval: list):
+# TODO: The shifting here is to account for the fact that we are doing delay embedding wrong.
+# Fix the delay embedding and remove this shifting
+def slice_trajectories(data, interval: list, t_shift=0.0):
     dataTrunc = deepcopy(data)
     ntraj = len(data)
     for traj in range(ntraj):
-        # truncate time array
-        dataTrunc[traj][1] = data[traj][1][:, (data[traj][0] >= interval[0]) & (data[traj][0] <= interval[1])]
+        data[traj][0] += t_shift
         # truncate trajectory array
         dataTrunc[traj][0] = data[traj][0][(data[traj][0] >= interval[0]) & (data[traj][0] <= interval[1])]
+        # truncate time array
+        dataTrunc[traj][1] = data[traj][1][:, (data[traj][0] >= interval[0]) & (data[traj][0] <= interval[1])]
     return dataTrunc
 
 def mapInt2List(n):
@@ -37,20 +39,29 @@ def mapInt2List(n):
 
 
 def phi(x, order: int):
-    # poly = PolynomialFeatures(degree=SSMOrder, include_bias=False).fit(x.T)
-    # # print(poly.get_feature_names_out(['a', 'b', 'c', 'd', 'e', 'f']))
-    # features = poly.transform(x.T)
     if not isinstance(order, int):
         order = int(order)
     return PolynomialFeatures(degree=order, include_bias=False).fit_transform(x.T).T
-    # dim = x.shape[0]
-    # zeta = sp.Matrix(sp.symbols('x1:{}'.format(dim + 1)))
-    # polynoms = sorted(itermonomials(list(zeta), order),
-    #                     key=monomial_key('grevlex', list(reversed(zeta))))
-    # polynoms = polynoms[1:]
 
-    # return sp.lambdify(zeta, polynoms)(*x[:, 0]) # , modules=[jnp, jsp.special])
+""""
+    Constructs separate features for u and x
+"""
+def phi_control(u, x, order_u: int, order_x: int):
+    if not isinstance(order_u, int):
+        order_u = int(order_u)
+    if not isinstance(order_x, int):
+        order_x = int(order_x)
+    poly_u = PolynomialFeatures(degree=order_u, include_bias=False)
+    poly_x = PolynomialFeatures(degree=order_x, include_bias=False)
+    u_features = poly_u.fit_transform(u.T).T
+    x_features = poly_x.fit_transform(x.T).T
+    
+    cross = np.array([uf * xf for uf in u_features for xf in x_features])
 
+    # Reshape to combine the last two dimensions
+    features = np.concatenate((u_features, cross), axis=0)
+
+    return features
 
 def lift_trajectories(IMInfo: dict, etaData):
     H = np.array(IMInfo['parametrization']['H'])
@@ -136,10 +147,39 @@ def delayEmbedding(undelayedData, embed_coords=[0, 1, 2], up_to_delay=4):
     delayedData = np.vstack(buf)
     return delayedData
 
+# Assume we import from mat file and that the data is already centered
+def import_traj_data(data_dir, outdofs):
+
+    trajData = []
+    inputData = []
+    files = sorted([f for f in listdir(data_dir) if 'snapshots.mat' in f])
+    if not isinstance(files, list):
+        files = [files]
+    
+    for i, traj in enumerate(files):
+        with open(join(data_dir, traj), 'rb') as file:
+            data = loadmat(file)
+
+            # Extract decay trajectories from the various initial conditions
+            for i in range(data['oData'].shape[0]):
+                t = data['oData'][i][0][0] #[traj idx][time (0) or traj (1)][single array (0)]
+                yData = data['oData'][i][1][outdofs, :]
+                trajData.append([t, yData])
+
+                uData = data['oData'][i][3]
+                inputData.append([t, uData])
+
+    if len(trajData) == 1:
+        trajData, inputData = trajData[0], inputData[0]
+    return np.array(trajData, dtype=object), np.array(inputData, dtype=object)
+
+    
+
 # TODO: We should generalize this to more than just the tip
 def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None, 
                     t_in=0, t_out=None, return_inputs=False, return_velocity=False, 
-                    traj_index=np.s_[:], file_type='pkl', subsample=1, shift=False):
+                    traj_index=np.s_[:], file_type='pkl', subsample=1, shift=False, return_reduced_coords=False,
+                    hardware=False):
     if q_rest is not None:
         q_rest = np.array(q_rest)
     elif rest_file is not None:
@@ -163,13 +203,16 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None,
     if not isinstance(files, list):
         files = [files]
     out_data = []
+    reduced_data = []
     u = []
     for i, traj in enumerate(files):
         # Setup output nodes
         if output_node == 'all':
             node_slice = np.s_[:]
-        else:
+        elif type(output_node) == int:
             node_slice = np.s_[3*output_node:3*output_node+3]
+        else:
+            node_slice = output_node
         
         with open(join(data_dir, traj), 'rb') as file:
             # Assumes files are NOT centered
@@ -228,21 +271,39 @@ def import_pos_data(data_dir, rest_file=None, q_rest=None, output_node=None,
                             data_traj_trunc = data['oData'][i][1][:, ind]
                     else:
                         if shift:
-                            data_traj_trunc = data['oData'][i][1][0:3, ind] - q_rest[node_slice].reshape((3,1))
+                            if type(node_slice) == list:
+                                data_traj_trunc = data['oData'][i][1][:, ind] - q_rest[node_slice].reshape((3,1))
+                                data_traj_trunc = data_traj_trunc[node_slice, :]
+                            else:
+                                data_traj_trunc = data['oData'][i][1][0:3, ind] - q_rest[node_slice].reshape((3,1))
                         else:
-                            data_traj_trunc = data['oData'][i][1][0:3, ind]
+                            if type(node_slice) == list:
+                                data_traj_trunc = data['oData'][i][1][:, ind]
+                                data_traj_trunc = data_traj_trunc[node_slice, :]
+                            else:
+                                data_traj_trunc = data['oData'][i][1][0:3, ind]
 
                     data_traj = data_traj_trunc[:, ::subsample]
                     out_data.append([t, data_traj])
                     
                     if return_inputs:
-                        uTrunc = np.array(data['u'])[ind, :].T
+                        if hardware:
+                            uTrunc = np.array(data['u'])[i][0][:, ind]
+                        else:
+                            uTrunc = np.array(data['u'])[ind, :].T
                         u.append(uTrunc[:, ::subsample])
+                    elif return_reduced_coords:
+                        eta_traj_trunc = data['yData'][i][1][:, ind]
+                        eta_traj = eta_traj_trunc[:, ::subsample]
+                        reduced_data.append([t, eta_traj])
+
 
     if len(out_data) == 1:
         out_data, u = out_data[0], u[0]
     if return_inputs:
         return out_data, u
+    elif return_reduced_coords:
+        return out_data, reduced_data
     else:
         return out_data
 
@@ -332,7 +393,7 @@ def predict_open_loop(R, Vauton, t, u, x0, method='RK45'):
     # zTraj = yTraj[:3, :]
     # if integration unsuccessful, fill up solution with nans
     if zTraj.shape[1] < len(t):
-        zTraj = np.hstack((zTraj, np.tile(np.nan, (3, len(t) - zTraj.shape[1]))))
+        zTraj = np.hstack((zTraj, np.tile(np.nan, (zTraj.shape[0], len(t) - zTraj.shape[1]))))
     return zTraj
 
 def multivariate_polynomial(x, order: int):
@@ -350,7 +411,7 @@ def Rauton(RDInfo):
     Rauton = lambda y: W_r @ phi(y) # / 10
     return Rauton
 
-def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, settings, test_results):
+def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, settings, test_results, custom_obs=False):
     SSM_model = {'model': {}, 'params': {}}
     SSM_model['model']['w_coeff'] = IMInfo['parametrization']['H']
     SSM_model['model']['r_coeff'] = RDInfo['reducedDynamics']['coefficients']
@@ -365,15 +426,21 @@ def save_ssm_model(model_save_dir, RDInfo, IMInfo, B_learn, Vde, q_eq, u_eq, set
     if settings['observables'] == "delay-embedding":
         SSM_model['params']['delay_embedding'] = True
         SSM_model['model']['V'] = Vde
+        SSM_model['params']['output_dim'] = settings['oDOF']
         if settings['custom_delay']:
             SSM_model['params']['obs_dim'] = settings['oDOF'] * (1 + settings['custom_delay'])
             SSM_model['model']['v_coeff'] = IMInfo['chart']['H']
             SSM_model['params']['delays'] = settings['custom_delay']
+        elif custom_obs: # Switching to position and velocity observables
+            SSM_model['params']['delay_embedding'] = False
+            SSM_model['params']['obs_dim'] = 6
+            SSM_model['model']['v_coeff'] = IMInfo['chart']['H']
+            SSM_model['params']['delays'] = 0
+            SSM_model['params']['output_dim'] = 2 * settings['oDOF']
         else:
             SSM_model['params']['delays'] = settings['n_delay']
             SSM_model['params']['obs_dim'] = settings['oDOF'] * (1 + settings['n_delay'])
             SSM_model['model']['v_coeff'] = None
-        SSM_model['params']['output_dim'] = settings['oDOF']
     elif settings['observables'] == "pos-vel":
         SSM_model['model']['V'] = Vde
         SSM_model['model']['v_coeff'] = IMInfo['chart']['H']
@@ -551,7 +618,7 @@ def getChartandReducedCoords(SETTINGS, model_save_dir, Data, svd_data, PLOTS):
 
 # TODO: Ensure hardcoded values are not present
 # TODO: If not custom observables, use yDataTrunc. Otherwise, use oDataTrunc (which should be assembled prior)
-def learnIMandRD(SETTINGS, Data, indTrain, custom_delay=False):
+def learnIMandRD(SETTINGS, Data, indTrain, custom_delay=False, custom_outdofs=None):
     if SETTINGS['use_ssmlearn'] == "matlab":
         # ====== Start Matlab engine and SSMLearn ====== #
         print("====== Start Matlab engine and SSMLearn ======")
@@ -562,32 +629,32 @@ def learnIMandRD(SETTINGS, Data, indTrain, custom_delay=False):
         IMInfo = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
                                 'reducedCoordinates', etaDataTruncTrain_matlab, 'l', SETTINGS['ridge_alpha']['manifold'])
         if SETTINGS['observables'] == "pos-vel":
-            IMInfo_paramonly = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-                        'reducedCoordinates', etaDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
+            # IMInfo_paramonly = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+            #             'reducedCoordinates', etaDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
             
-            tanspace0_not_orth = IMInfo_paramonly['parametrization']['tangentSpaceAtOrigin']
-            tanspace0 = orth(tanspace0_not_orth)
+            # tanspace0_not_orth = IMInfo_paramonly['parametrization']['tangentSpaceAtOrigin']
+            # tanspace0 = orth(tanspace0_not_orth)
 
-            Data['etaDataTruncNew'] = deepcopy(Data['etaDataTrunc'])
-            for iTraj in range(len(Data['etaDataTruncNew'])):
-                Data['etaDataTruncNew'][iTraj][1] = np.transpose(tanspace0) @ tanspace0_not_orth @ Data['etaDataTrunc'][iTraj][1]
-            Data['etaDataTrunc'] = deepcopy(Data['etaDataTruncNew'])
-            Data.pop('etaDataTruncNew', None)
-            etaDataTruncTrain_matlab = numpy_to_matlab([Data['etaDataTrunc'][i] for i in indTrain])
+            # Data['etaDataTruncNew'] = deepcopy(Data['etaDataTrunc'])
+            # for iTraj in range(len(Data['etaDataTruncNew'])):
+            #     Data['etaDataTruncNew'][iTraj][1] = np.transpose(tanspace0) @ tanspace0_not_orth @ Data['etaDataTrunc'][iTraj][1]
+            # Data['etaDataTrunc'] = deepcopy(Data['etaDataTruncNew'])
+            # Data.pop('etaDataTruncNew', None)
+            # etaDataTruncTrain_matlab = numpy_to_matlab([Data['etaDataTrunc'][i] for i in indTrain])
 
-            IMInfo_paramonly = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-                        'reducedCoordinates', etaDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
+            # IMInfo_paramonly = ssm.IMGeometry(yDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+            #             'reducedCoordinates', etaDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
             
-            IMInfo_chartonly = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-                        'reducedCoordinates', yDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
+            # IMInfo_chartonly = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+            #             'reducedCoordinates', yDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
 
-            # Define new Geometry
-            IMInfo = {'chart': IMInfo_chartonly['parametrization'], 'parametrization': IMInfo_paramonly['parametrization']}
+            # # Define new Geometry
+            # IMInfo = {'chart': IMInfo_chartonly['parametrization'], 'parametrization': IMInfo_paramonly['parametrization']}
             
-            # IMInfoInv = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
-            #                         'reducedCoordinates', yDataTruncTrain_matlab, 'l', SETTINGS['ridge_alpha']['manifold'])
-            # for key in ['map', 'polynomialOrder', 'dimension', 'nonlinearCoefficients', 'phi', 'exponents', 'H']:
-            #     IMInfo['chart'][key] = IMInfoInv['parametrization'][key]
+            IMInfoInv = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+                                    'reducedCoordinates', yDataTruncTrain_matlab, 'l', SETTINGS['ridge_alpha']['manifold'])
+            for key in ['map', 'polynomialOrder', 'dimension', 'nonlinearCoefficients', 'phi', 'exponents', 'H']:
+                IMInfo['chart'][key] = IMInfoInv['parametrization'][key]
         
         # Rotate and regress IM and RD based on new delay coordinates
         if custom_delay:
@@ -627,7 +694,7 @@ def learnIMandRD(SETTINGS, Data, indTrain, custom_delay=False):
                         'reducedCoordinates', etaDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
             # IMInfo_chartonly = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
             #             'reducedCoordinates', yDataTruncTrain_matlab, 'style', 'custom', 'Ve', np.transpose(tanspace0))
-            IMInfo_chartonly = ssm.IMGeometry(etaDataTruncTrain_matlab, SETTINGS['SSMDim'], SETTINGS['SSMOrder'],
+            IMInfo_chartonly = ssm.IMGeometry(etaDataTruncTrain_matlab, nd, SETTINGS['SSMOrder'],
                         'reducedCoordinates', yDataTruncTrain_matlab, 'style', 'custom', 'l', SETTINGS['ridge_alpha']['manifold'])
             
             # Define new Geometry
@@ -672,16 +739,78 @@ def learnIMandRD(SETTINGS, Data, indTrain, custom_delay=False):
                 'polynomialOrder': SETTINGS['SSMOrder'],
                 'H': ssm_inv.decoder.map_info['coefficients']
             }
+
+            # # Regress current reduced coordinates with new observable (used to infer the linear part of manifold, i.e., tangent space)
+            # ssm_paramonly = SSMLearn(
+            # t=[Data['yDataTrunc'][i][0] for i in indTrain], 
+            # x=[Data['yDataTrunc'][i][1] for i in indTrain], 
+            # reduced_coordinates=[Data['etaDataTrunc'][i][1] for i in indTrain],
+            # ssm_dim=SETTINGS['SSMDim'], 
+            # dynamics_type=SETTINGS['RDType']
+            # )
+            # ssm_paramonly.get_parametrization(poly_degree=SETTINGS['SSMOrder'], alpha=SETTINGS['ridge_alpha']['manifold'])
+
+            # # Calculate tangent space at origin and orthogonalize
+            # tanspace0_not_orth = ssm_paramonly.decoder.map_info['coefficients'][:SETTINGS['SSMDim'], :SETTINGS['SSMDim']]
+            # tanspace0 = orth(tanspace0_not_orth)
+
+            # # Change reduced coordinates and repopulate eta
+            # Data['etaDataTruncNew'] = deepcopy(Data['etaDataTrunc'])
+            # for iTraj in range(len(Data['etaDataTruncNew'])):
+            #     Data['etaDataTruncNew'][iTraj][1] = np.transpose(tanspace0) @ tanspace0_not_orth @ Data['etaDataTrunc'][iTraj][1]
+            # Data['etaDataTrunc'] = deepcopy(Data['etaDataTruncNew'])
+            # Data.pop('etaDataTruncNew', None)
+
+            # # Regress the new reduced coordinates with the new observable (used to infer the nonlinear part of manifold)
+            # # Get the parameterization
+            # ssm_paramonly = SSMLearn(
+            # t=[Data['yDataTrunc'][i][0] for i in indTrain], 
+            # x=[Data['yDataTrunc'][i][1] for i in indTrain], 
+            # reduced_coordinates=[Data['etaDataTrunc'][i][1] for i in indTrain],
+            # ssm_dim=SETTINGS['SSMDim'], 
+            # dynamics_type=SETTINGS['RDType']
+            # )
+            # ssm_paramonly.get_parametrization(poly_degree=SETTINGS['SSMOrder'], alpha=SETTINGS['ridge_alpha']['manifold'])
+
+            # # Construct the chart
+            # ssm_chartonly = SSMLearn(
+            #     t=[Data['etaDataTrunc'][i][0] for i in indTrain], 
+            #     x=[Data['etaDataTrunc'][i][1] for i in indTrain], 
+            #     reduced_coordinates=[Data['yDataTrunc'][i][1] for i in indTrain],
+            #     ssm_dim=SETTINGS['SSMDim'], 
+            #     dynamics_type=SETTINGS['RDType']
+            # )
+            # ssm_chartonly.get_parametrization(poly_degree=SETTINGS['SSMOrder'], alpha=SETTINGS['ridge_alpha']['manifold'])
+
+            # IMInfo = {
+            #     'parametrization': {
+            #     'polynomialOrder': SETTINGS['SSMOrder'],
+            #     'H': ssm_paramonly.decoder.map_info['coefficients']
+            #     }, 
+            #     'chart': {
+            #     'polynomialOrder': SETTINGS['SSMOrder'],
+            #     'H': ssm_chartonly.decoder.map_info['coefficients']
+            #     }
+            # }
+            
+            # # Reassign to get new rotated reduced dynamics
+            # ssm = ssm_paramonly
         
         if custom_delay:
             assert isinstance(custom_delay, int), 'Custom delay must take an integer value'
-
-            nd = (custom_delay + 1) * SETTINGS['oDOF']
+            if custom_outdofs is None:
+                nd = (custom_delay + 1) * SETTINGS['oDOF']
+            else:
+                # TODO: Assume we have the observables were trying to delay in here
+                nd = (custom_delay + 1) * len(Data['oDataTrunc'][0][1][:, 0])
 
             # Get new delayed observables and rotate reduced coordinates
             Data['yDataTruncNew'] = deepcopy(Data['yDataTrunc'])
             for iTraj in range(len(Data['yDataTrunc'])):
-                Data['yDataTruncNew'][iTraj][1] = Data['yDataTrunc'][iTraj][1][-nd:, :]
+                if custom_outdofs is None:
+                    Data['yDataTruncNew'][iTraj][1] = Data['yDataTrunc'][iTraj][1][-nd:, :]
+                else:
+                    Data['yDataTruncNew'][iTraj][1] = Data['yDataTrunc'][iTraj][1][custom_outdofs, :]
             Data['yDataTrunc'] = deepcopy(Data['yDataTruncNew'])
             Data.pop('yDataTruncNew', None)
 
@@ -769,7 +898,7 @@ def analyzeSSMErrors(model_save_dir, IMInfo, RDInfo, Data, indTrain, indTest, ou
                         xyz_idx=[('yData', outdofs[0]), ('yData', outdofs[1]), ('yData', outdofs[2])],
                         xyz_names=[r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]'],
                         traj_idx=indTest,
-                        show=False)
+                        show=False, t_shift=Data['yData'][0][0][0])
     plot.traj_xyz(trajRec,
                 xyz_idx=[('geo', outdofs[0]), ('geo', outdofs[1]), ('geo', outdofs[2])],
                 xyz_names=[r'$x$ [mm]', r'$y$ [mm]', r'$z$ [mm]'],
@@ -809,7 +938,7 @@ def analyzeSSMErrors(model_save_dir, IMInfo, RDInfo, Data, indTrain, indTest, ou
                         xyz_idx=[('yData', outdofs[0]), ('yData', outdofs[1]), ('yData', outdofs[2])],
                         xyz_names=[r'$x$', r'$y$', r'$z$'],
                         traj_idx=indTest,
-                        show=False)
+                        show=False, t_shift=Data['yData'][0][0][0])
     plot.traj_xyz(trajRec,
                 xyz_idx=[('glob', outdofs[0]), ('glob', outdofs[1]), ('glob', outdofs[2])],
                 xyz_names=[r'$x$', r'$y$', r'$z$'],
@@ -818,10 +947,21 @@ def analyzeSSMErrors(model_save_dir, IMInfo, RDInfo, Data, indTrain, indTest, ou
     if PLOTS == 'save':
         plt.savefig(join(model_save_dir, "plots", f"global_error.png"), bbox_inches='tight')
 
-def learnBmatrix(SETTINGS, Wauton, Rauton, z, u, t, u_eq, embed_coords=[0, 1, 2]):
+def learnBmatrix(SETTINGS, Wauton, Rauton, z, u, t, u_eq, embed_coords=[0, 1, 2], hardware=False):
     u = (u.T - u_eq).T
     if SETTINGS['observables'] == "delay-embedding":
-        y = delayEmbedding(z, embed_coords=embed_coords, 
+        y = None
+        # TODO: This is trying to organize batch data for hardware; currently not used
+        if hardware:
+            for i in range(z.reshape(-1,1).shape[1]):
+                yi = delayEmbedding(z[:, i], embed_coords=embed_coords,
+                                up_to_delay=SETTINGS['custom_delay'] if SETTINGS['custom_delay'] else SETTINGS['n_delay'])
+                if y is None:
+                    y = yi
+                else:
+                    y = np.hstack([y, yi])
+        else:
+            y = delayEmbedding(z, embed_coords=embed_coords, 
                           up_to_delay=SETTINGS['custom_delay'] if SETTINGS['custom_delay'] else SETTINGS['n_delay'])
     else:
         y = np.vstack([z, np.gradient(z, SETTINGS['dt'], axis=1)])
@@ -839,7 +979,12 @@ def learnBmatrix(SETTINGS, Wauton, Rauton, z, u, t, u_eq, embed_coords=[0, 1, 2]
     dxdt_ROM = Rauton(x_train)
 
     # ====== regress B matrix ====== #
+    # Regress using linear features
     assemble_features = lambda u, x: phi(u, order=SETTINGS['poly_u_order']) # utils.phi(np.vstack([u, x]), order=SETTINGS['poly_u_order']) # 
+    
+    # Regress using nonlinear features
+    # assemble_features = lambda u, x: phi_control(u, x, SETTINGS['poly_u_order'], 1)
+
     X = assemble_features(u_train, x_train)
     B_learn = regress_B(X, dxdt, dxdt_ROM, alpha=SETTINGS['ridge_alpha']['B'], method='ridge')
     print(f"Frobenius norm of B_learn: {np.linalg.norm(B_learn, ord='fro'):.4f}")
@@ -849,6 +994,18 @@ def learnBmatrix(SETTINGS, Wauton, Rauton, z, u, t, u_eq, embed_coords=[0, 1, 2]
     return {'t_train': t_train, 't_test': t_test, 'z_test': z_test, 'u_train': u_train, 'u_test': u_test, 
             'x_train': x_train, 'x_test': x_test, 'dxdt': dxdt, 'dxdt_ROM': dxdt_ROM,'B_learn': B_learn, 'R': R}
 
+def fitControlMatrix(Rauton, x_train, u_train, dt, alpha=0.0):
+    # autonomous reduced dynamics vs. numerical derivative
+    dxdt = np.gradient(x_train, dt, axis=1)
+    dxdt_ROM = Rauton(x_train)
+
+    # ====== regress B matrix ====== #
+    X = phi(u_train, 1)
+    B_learn = regress_B(X, dxdt, dxdt_ROM, alpha=alpha, method='ridge')
+    print(f"Frobenius norm of B_learn: {np.linalg.norm(B_learn, ord='fro'):.4f}")
+
+    return B_learn
+
 def plot_gradients(t_train, dxdt, dxdt_ROM, dxDt_ROM_with_B, PLOTS, model_save_dir):
     plot_reduced_coords = np.s_[:] # [3, 4, 5]
     plot.reduced_coordinates_gradient(t_train, [dxdt[plot_reduced_coords, :], dxdt_ROM[plot_reduced_coords, :], dxDt_ROM_with_B[plot_reduced_coords, :]],
@@ -857,7 +1014,7 @@ def plot_gradients(t_train, dxdt, dxdt_ROM, dxDt_ROM_with_B, PLOTS, model_save_d
         plt.savefig(join(model_save_dir, "plots", f"reduced_coordinates_gradient.png"), bbox_inches='tight')
 
 def analyzeOLControlPredict(SETTINGS, model_save_dir, controlData, q_eq, u_eq, Wauton, R, Vauton, embed_coords,
-                            traj_coords=[0, 1, 2], PLOTS=False):
+                            traj_coords=[0, 1, 2], PLOTS=False, file_type='pkl', hardware='False'):
     test_results = {}
     test_trajectories = [{
             'name': "like training data",
@@ -871,7 +1028,9 @@ def analyzeOLControlPredict(SETTINGS, model_save_dir, controlData, q_eq, u_eq, W
         (t, z), u = import_pos_data(data_dir=traj_dir,
                                     rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                     q_rest = q_eq,
-                                    output_node=SETTINGS['tip_node'], return_inputs=True, traj_index=0)
+                                    output_node=SETTINGS['tip_node'], 
+                                    return_inputs=True, 
+                                    traj_index=0, file_type=file_type, hardware=hardware)
 
         u = (u.T - u_eq).T
         if SETTINGS['observables'] == "delay-embedding":
@@ -889,20 +1048,69 @@ def analyzeOLControlPredict(SETTINGS, model_save_dir, controlData, q_eq, u_eq, W
             })
     for traj in test_trajectories:
         try:
-            z_pred = predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0], method="LSODA")
+            z_pred = predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0], method='Radau')
         except Exception as e:
             z_pred = np.nan * np.ones_like(traj['z'])
-        rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :] - traj['z'][:3])**2, axis=0))) / len(traj['t']))
+        idx_end = np.where(np.isnan(z_pred))[1][0] if np.any(np.isnan(z_pred)) else len(traj['t'])
+        rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :idx_end] - traj['z'][:3, :idx_end])**2, axis=0))) / len(traj['t']))
         print(f"({traj['name']}): RMSE = {rmse:.4f}")
         test_results[traj['name']] = {
             'RMSE': rmse
         }
         if PLOTS:
-            axs = plot.traj_xyz_txyz(traj['t'],
-                                    z_pred[embed_coords[0], :], z_pred[embed_coords[1], :], z_pred[embed_coords[2], :],
+            axs = plot.traj_xyz_txyz(traj['t'][:idx_end],
+                                    z_pred[embed_coords[0], :idx_end], z_pred[embed_coords[1], :idx_end], z_pred[embed_coords[2], :idx_end],
                                     show=False)
-            axs = plot.traj_xyz_txyz(traj['t'],
-                                    traj['z'][traj_coords[0], :], traj['z'][traj_coords[1], :], traj['z'][traj_coords[2], :],
+            axs = plot.traj_xyz_txyz(traj['t'][:idx_end],
+                                    traj['z'][traj_coords[0], :idx_end], traj['z'][traj_coords[1], :idx_end], traj['z'][traj_coords[2], :idx_end],
+                                    color="tab:orange", axs=axs, show=(PLOTS == 'show'))
+            axs[-1].legend(["Predicted trajectory", "Actual trajectory"])
+            if PLOTS == 'save':
+                plt.savefig(join(model_save_dir, "plots", f"open-loop-prediction_{traj['name']}.png"), bbox_inches='tight')
+    print(f"(overall): RMSE = {np.mean([test_results[traj]['RMSE'] for traj in test_results]):.4f}")
+
+    return test_results
+
+def analyze_open_loop(test_data, model_save_dir, controlData, Wauton, R, Vauton, embed_coords, 
+                            traj_coords=[0, 1, 2], PLOTS=False):
+    
+    t_test, y_test, z_test, u_test = test_data
+    n_test = len(y_test)
+    test_results = {}
+    test_trajectories = [{
+            'name': "like training data",
+            't': controlData['t_test'],
+            'z': controlData['z_test'],
+            'u': controlData['u_test'],
+            'x': controlData['x_test']
+        }]
+    for idx_test in range(n_test):
+        t, z, y, u = t_test[idx_test], z_test[idx_test], y_test[idx_test], u_test[idx_test]
+
+        test_trajectories.append({
+                'name': idx_test,
+                't': t,
+                'z': z,
+                'u': u,
+                'x': Wauton(y)
+            })
+    for traj in test_trajectories:
+        try:
+            z_pred = predict_open_loop(R, Vauton, traj['t'], traj['u'], x0=traj['x'][:, 0], method='Radau')
+        except Exception as e:
+            z_pred = np.nan * np.ones_like(traj['z'])
+        idx_end = np.where(np.isnan(z_pred))[1][0] if np.any(np.isnan(z_pred)) else len(traj['t'])
+        rmse = float(np.sum(np.sqrt(np.mean((z_pred[:3, :idx_end] - traj['z'][:3, :idx_end])**2, axis=0))) / len(traj['t']))
+        print(f"({traj['name']}): RMSE = {rmse:.4f}")
+        test_results[traj['name']] = {
+            'RMSE': rmse
+        }
+        if PLOTS:
+            axs = plot.traj_xyz_txyz(traj['t'][:idx_end],
+                                    z_pred[embed_coords[0], :idx_end], z_pred[embed_coords[1], :idx_end], z_pred[embed_coords[2], :idx_end],
+                                    show=False)
+            axs = plot.traj_xyz_txyz(traj['t'][:idx_end],
+                                    traj['z'][traj_coords[0], :idx_end], traj['z'][traj_coords[1], :idx_end], traj['z'][traj_coords[2], :idx_end],
                                     color="tab:orange", axs=axs, show=(PLOTS == 'show'))
             axs[-1].legend(["Predicted trajectory", "Actual trajectory"])
             if PLOTS == 'save':

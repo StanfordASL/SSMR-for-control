@@ -15,9 +15,9 @@ np.set_printoptions(linewidth=300)
 
 
 SETTINGS = {
-    'observables': "pos-vel", # "pos-vel", # "delay-embedding"
+    'observables': "delay-embedding", # "pos-vel", # "delay-embedding"
     'reduced_coordinates': "local", # "global" # "local"
-    'use_ssmlearn': "matlab", # "matlab", "py"
+    'use_ssmlearn': "py", # "matlab", "py"
 
     'robot_dir': "/home/jalora/soft-robot-control/examples/hardware",
     'tip_node': 1354,
@@ -31,18 +31,18 @@ SETTINGS = {
     'oDOF': 3,
     'n_delay': 4,
     'SSMDim': 6,
-    'SSMOrder': 3,
-    'ROMOrder': 3,
+    'SSMOrder': 1,
+    'ROMOrder': 1,
     'RDType': "flow",
     'ridge_alpha': {
         'manifold': 0., # 1.,
         'reduced_dynamics': 0., # 100.,
-        'B': 1000. # 1.
+        'B': 0 # 1.
     },
-    'custom_delay': None, # Specify a custom delay embedding for the SSM
+    'custom_delay': 0, # Specify a custom delay embedding for the SSM
 
-    # 'data_dir': "/home/jalora/Desktop/diamond",
-    'data_dir': "/home/jalora/Desktop/diamond_origin",
+    'data_dir': "/home/jalora/Desktop/diamond",
+    # 'data_dir': "/home/jalora/Desktop/diamond_origin",
     'data_subdirs': False,
     'decay_dir': "decay/",
     'rest_file': "rest_qv.pkl",
@@ -100,18 +100,24 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     print("====== Import decay trajectories ======")    
     Data = {}
     # For /home/jjalora/Desktop/Diamond
-    # Data['oData'] = utils.import_pos_data(decay_data_dir, 
-    #                                       q_rest=q_eq, 
-    #                                       output_node='all', 
-    #                                       file_type='mat', 
-    #                                       subsample=10, return_velocity=False)
+    Data['oData'] = utils.import_pos_data(decay_data_dir, 
+                                          q_rest=q_eq, 
+                                          output_node='all', 
+                                          file_type='mat', 
+                                          subsample=10, return_velocity=False)
+    
+    # Data['oData'], Data['etaData'] = utils.import_pos_data(decay_data_dir, 
+    #                                     q_rest=q_eq, 
+    #                                     output_node='all', 
+    #                                     file_type='mat', 
+    #                                     subsample=10, return_velocity=False, return_reduced_coords=True)
 
     # For /home/jjalora/Desktop/Diamond_origin
-    Data['oData'] = utils.import_pos_data(decay_data_dir,
-                                        rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
-                                        q_rest=q_eq,
-                                        output_node=output_node,
-                                        t_in=SETTINGS['t_decay'][0], t_out=SETTINGS['t_decay'][1])
+    # Data['oData'] = utils.import_pos_data(decay_data_dir,
+    #                                     rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
+    #                                     q_rest=q_eq,
+    #                                     output_node=output_node,
+    #                                     t_in=SETTINGS['t_decay'][0], t_out=SETTINGS['t_decay'][1])
     
     nTRAJ = len(Data['oData'])
 
@@ -127,10 +133,11 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     # ====== Truncate decay trajectories ====== #
     Data['oDataTrunc'] = utils.slice_trajectories(Data['oData'], SETTINGS['t_truncate'])
     Data['yDataTrunc'] = utils.slice_trajectories(Data['yData'], SETTINGS['t_truncate'])
-
+    # Data['etaDataTrunc'] = utils.slice_trajectories(Data['etaData'], SETTINGS['t_truncate'])
 
     # ====== Get Tangent Space and include reduced coords in Data ====== #
     Vde, Data = utils.getChartandReducedCoords(SETTINGS, model_save_dir, Data, svd_data, PLOTS)
+    # Vde = None
 
     # ====== Train/test split for decay data ====== #
     indTest = SETTINGS['decay_test_set']
@@ -152,11 +159,11 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
 
 
     # ====== Visualize dominant displacement modes ====== #
-    if PLOTS and SETTINGS['observables'] == "pos-vel":
-        modesDir, modesFreq = utils.dominant_displacement_modes(RDInfo, Vde, SSMDim=SETTINGS['SSMDim'], tip_node=SETTINGS['tip_node'], n_nodes=SETTINGS['n_nodes'])
-        plot.mode_direction(modesDir, modesFreq, show=(PLOTS == 'show'))
-        if PLOTS == 'save':
-            plt.savefig(join(model_save_dir, "plots", f"displacement_modes.png"), bbox_inches='tight') 
+    # if PLOTS and SETTINGS['observables'] == "pos-vel":
+    #     modesDir, modesFreq = utils.dominant_displacement_modes(RDInfo, Vde, SSMDim=SETTINGS['SSMDim'], tip_node=SETTINGS['tip_node'], n_nodes=SETTINGS['n_nodes'])
+    #     plot.mode_direction(modesDir, modesFreq, show=(PLOTS == 'show'))
+    #     if PLOTS == 'save':
+    #         plt.savefig(join(model_save_dir, "plots", f"displacement_modes.png"), bbox_inches='tight') 
 
 
     # ===== Influence of control ====== #
@@ -176,20 +183,20 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     # TODO: EDIT THIS!! for delay-embedding, we should not return velocity?
     # training data
     # For /home/jjalora/Desktop/Diamond/
-    # (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
-    #                                 rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
-    #                                 q_rest = q_eq,
-    #                                 output_node=SETTINGS['tip_node'], 
-    #                                 return_inputs=True, 
-    #                                 file_type='mat',
-    #                                 shift=True, return_velocity=False)
-
-    # For /home/jjalora/Desktop/Diamond_origin/
     (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
                                     rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
                                     q_rest = q_eq,
                                     output_node=SETTINGS['tip_node'], 
-                                    return_inputs=True)
+                                    return_inputs=True, 
+                                    file_type='mat',
+                                    shift=True, return_velocity=False)
+
+    # For /home/jjalora/Desktop/Diamond_origin/
+    # (t, z), u = utils.import_pos_data(data_dir=join(data_dir, SETTINGS['input_train_data_dir']),
+    #                                 rest_file=None, # join(SETTINGS['robot_dir'], SETTINGS['rest_file']),
+    #                                 q_rest = q_eq,
+    #                                 output_node=SETTINGS['tip_node'], 
+    #                                 return_inputs=True)
 
     # Conduct regression and get R (controlled reduced dynamics)
     controlData = utils.learnBmatrix(SETTINGS, Wauton, Rauton, z, u, t, u_eq)
@@ -198,10 +205,10 @@ def generate_ssmr_model(data_dir, save_model_to_data_dir=False):
     # ====== Test open-loop prediction capabalities of SSM model ====== #
 
     print("====== Test open-loop prediction capabalities of SSM model ======")
-    test_results = utils.analyzeOLControlPredict(SETTINGS, model_save_dir, controlData, q_eq, u_eq, Wauton, R, Vauton, embed_coords=outdofs,
+    traj_outDofs = [0, 1, 2]
+    test_results = utils.analyzeOLControlPredict(SETTINGS, model_save_dir, controlData, q_eq, u_eq, Wauton, R, Vauton, embed_coords=traj_outDofs,
                                                  PLOTS=PLOTS)
 
-    traj_outDofs = [0, 1, 2]
     if PLOTS:
         # plot training data
         plot.traj_xyz_txyz(t=t,

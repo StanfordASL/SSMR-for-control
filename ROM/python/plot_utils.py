@@ -78,7 +78,7 @@ def traj_2D_xy(x, y, ax=None, color="tab:blue", ls="-", show=True, label=""):
         return ax
 
 
-def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=None, show=True, highlight_idx=[]):
+def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=None, show=True, highlight_idx=[], t_shift=0.0):
     if axs is None:
         fig, axs = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
     if traj_idx is None:
@@ -90,11 +90,11 @@ def traj_xyz(Data, xyz_idx, xyz_names, traj_idx=None, axs=None, ls='-', color=No
     for coord, ax in enumerate(axs):
         for i, traj in enumerate(traj_idx):
             # plot(t, x/y/z)
-            ax.plot(Data[xyz_idx[coord][0]][traj][0],
+            ax.plot(Data[xyz_idx[coord][0]][traj][0] - t_shift,
                     Data[xyz_idx[coord][0]][traj][1][xyz_idx[coord][1], :],
                     color=colors[i], ls=ls, lw=TRAJ_LINEWIDTH)
         for idx in highlight_idx:
-            ax.plot(Data[xyz_idx[coord][0]][idx][0],
+            ax.plot(Data[xyz_idx[coord][0]][idx][0] - t_shift,
                     Data[xyz_idx[coord][0]][idx][1][xyz_idx[coord][1], :],
                     color='tab:green', ls=ls, lw=TRAJ_LINEWIDTH*1.2)
         ax.set_ylabel(xyz_names[coord])

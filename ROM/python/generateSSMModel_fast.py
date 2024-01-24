@@ -59,7 +59,7 @@ SETTINGS = {
     'model_save_dir': "SSMmodels/",
 
     't_decay': [1, 4],
-    't_truncate': [0.0, 3],
+    't_truncate': [0.08, 3],
 
     # 'decay_test_set': [0, 8, 16, 24],
     'decay_test_set': [0, 4],

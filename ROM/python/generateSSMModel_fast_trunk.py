@@ -14,7 +14,7 @@ np.set_printoptions(linewidth=300)
 
 
 SETTINGS = {
-    'observables': "delay-embedding", # "delay-embedding", # "pos-vel", #
+    'observables': "pos-vel", # "delay-embedding", # "pos-vel", #
     'reduced_coordinates': "local", # "global" # "local"
 
     'use_ssmlearn': "py", # "matlab", "py"
@@ -34,11 +34,11 @@ SETTINGS = {
     'ROMOrder': 3,
     'RDType': "flow",
     'ridge_alpha': {
-        'manifold': 1., # 1.,
+        'manifold': 0., # 1.,
         'reduced_dynamics': 100., # 100.,
-        'B': 1. # 1.
+        'B': 0 # 1.
     },
-    'custom_delay': False, # Specify a custom delay embedding for the SSM (False or Integer)
+    'custom_delay': None, # Specify a custom delay embedding for the SSM (False or Integer)
 
 
     # 'data_dir': "/media/jonas/Backup Plus/jonas_soft_robot_data/trunk_adiabatic_10ms_N=100_sparsity=0.95", # 33_handcrafted/",
@@ -59,10 +59,10 @@ SETTINGS = {
     'model_save_dir': "SSMmodels/",
 
     't_decay': [1, 4],
-    't_truncate': [0.0, 3],
+    't_truncate': [0.08, 3], # [0.03, 3]
 
-    # 'decay_test_set': [0, 8, 16, 24],
-    'decay_test_set': [0, 4],
+    'decay_test_set': [0, 8, 16, 24],
+    # 'decay_test_set': [0, 4],
 
     'poly_u_order': 1,
     'input_train_data_dir': "open-loop",
